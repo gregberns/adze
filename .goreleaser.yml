@@ -1,0 +1,40 @@
+version: 2
+
+builds:
+  - main: ./cmd/adze
+    binary: "adze-{{ .Os }}-{{ .Arch }}"
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .Commit }}
+      - -X main.date={{ .Date }}
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    # Do not append OS/arch suffix to the output directory — the binary name
+    # already contains the target tuple.
+    no_unique_dist_dir: true
+
+archives:
+  - format: binary
+    # The binary is already named adze-<os>-<arch>; keep that as the archive name.
+    name_template: "{{ .Binary }}"
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+release:
+  github:
+    owner: gregberns
+    name: adze
+  extra_files:
+    - glob: install.sh
+
+changelog:
+  use: github-native
