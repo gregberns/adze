@@ -1,19 +1,20 @@
 # Tasks & Status
 
-## Current Phase: Design → Spec
+## Project Name: adze
 
-The project has completed initial brainstorming and design decisions. The next phase is to formalize these into a spec and begin implementation.
+An adze shapes rough wood into a flat working surface — takes a raw machine and shapes it into a configured, ready-to-use state. Sibling project to kerf.
 
 ---
 
 ## Completed
 
+### Design Phase
 - [x] Evaluate alternatives (Nix, Ansible, Chezmoi, Homebrew Bundle, etc.)
 - [x] Define core problem (bidirectional sync between config and machine state)
 - [x] Choose implementation language (Go — single binary, no runtime deps)
 - [x] Choose config format (YAML)
 - [x] Design the step primitive (provides/requires → DAG)
-- [x] Resolve key design decisions (batched packages, install vs upgrade, version pinning, composable includes, `brew leaves` for capture, `--config` when ambiguous)
+- [x] Resolve key design decisions (15 decisions documented with reasoning)
 - [x] Design the CLI command surface
 - [x] Design the resume/recovery model
 - [x] Design secrets/env var handling
@@ -23,62 +24,81 @@ The project has completed initial brainstorming and design decisions. The next p
 - [x] Capture brainstorming details (docs/brainstorming.md)
 - [x] Define objectives and scope (docs/objectives.md)
 
+### Spec Phase (kerf work: machine-spec — SQUARED)
+- [x] Brainstorm and decide project name → **adze**
+- [x] Write problem-space doc (01-problem-space.md)
+- [x] Decompose into 12 spec components (02-components.md)
+- [x] Research pass — 12 component research docs (03-research/)
+- [x] Design pass — 12 component design docs (04-design/)
+- [x] Write formal spec drafts — 12 specs (05-spec-drafts/)
+- [x] Integration review — cross-spec consistency (06-integration.md)
+- [x] Generate implementation task breakdown (07-tasks.md)
+- [x] Kerf square passed (43/43 artifacts present)
+
+---
+
 ## Up Next
 
-### Phase 1: Spec
+### Pre-Implementation Housekeeping
+- [ ] **Replace `<tool>` placeholders in spec drafts** with `adze` — all 12 spec files in `~/.kerf/projects/machine-setup/machine-spec/05-spec-drafts/`
+- [ ] **Finalize kerf work** — `kerf finalize machine-spec --branch spec/v1`
+- [ ] **Rename repo** — `machine-setup` → `adze` (folder, GitHub remote, go module name)
+- [ ] **Copy finalized specs into repo** — `specs/` directory with all 12 spec files
+- [ ] **Update CLAUDE.md** — reflect adze name, spec location, implementation workflow
 
-- [ ] **Brainstorm project name** — needs a real name. Woodworking theme preferred (the sibling project is called "kerf"). Short, memorable, typeable. Rename the project folder/docs once decided.
-- [ ] **Write formal spec** — structured, implementable specification covering:
-  - [ ] Config schema (exact YAML structure with all fields, types, defaults, validation rules)
-  - [ ] Step primitive (Go struct, interface, lifecycle)
-  - [ ] Dependency graph resolver (algorithm, error cases, output format)
-  - [ ] Platform adapter interface (Go interface, what each adapter must implement)
-  - [ ] Built-in step library (full list of v1 steps with per-platform commands)
-  - [ ] CLI commands (exact flags, arguments, output formats, exit codes)
-  - [ ] Include/merge system (exact merge semantics, conflict resolution, cycle detection)
-  - [ ] Secrets system (declaration, validation, sourcing, masking)
-  - [ ] Resume/recovery (per-step and per-item failure handling, reporting format)
-  - [ ] `render` output format (generated script structure)
-  - [ ] `doctor` output format (AI prompt template)
-  - [ ] Bootstrap script (exact content)
-  - [ ] Error messages and exit codes
-- [ ] **Define v1 scope** — draw the line between "must have for v1" and "future." Candidates for v1 cut: remote apply, community registry, parallel execution, container testing, notifications.
+### Phase 1: Foundation (Implementation)
+- [ ] **T1. Initialize Go module** — `go mod init`, `cmd/adze/main.go`, package directories
+- [ ] **T2. Config parser** — YAML parsing, Go structs, validation (42 error codes), both package syntaxes
+- [ ] **T3. Include/merge system** — relative path resolution, deep merge, list dedup, circular detection
+- [ ] **T4. Step primitive** — Step interface, ShellStep adapter, lifecycle (check→apply→verify), batch semantics
+- [ ] **T5. Secrets system** — pre-flight validation, masking (`***`), interactive prompting
 
-### Phase 2: Implementation
+### Phase 2: Core Engine
+- [ ] **T6. DAG resolver** — Kahn's algorithm, cycle detection, skip propagation, deterministic sort
+- [ ] **T7. Platform adapters** — Adapter interface, darwin (brew/defaults/scutil), ubuntu (apt/gsettings/systemctl), generic
+- [ ] **T8. Built-in step library** — 22 steps, config section bindings, step registry
+- [ ] **T9. Resume/recovery** — Runner orchestrator, stateless resume, failure propagation, run summary, log files
 
-- [ ] Initialize Go module and project structure
-- [ ] Implement config parser (YAML → Go structs, include resolution, merge)
-- [ ] Implement dependency graph resolver (build, validate, topological sort)
-- [ ] Implement platform detection and adapter interface
-- [ ] Implement darwin adapter (brew, cask, defaults, dockutil, scutil)
-- [ ] Implement ubuntu/debian adapter (apt, gsettings, systemctl)
-- [ ] Implement generic adapter (directories, git config, SSH, shell setup)
-- [ ] Implement built-in step library
-- [ ] Implement core commands: validate, plan, apply
-- [ ] Implement drift detection: status
-- [ ] Implement reverse sync: capture
-- [ ] Implement atomic operations: install, remove
-- [ ] Implement upgrade (with pinning respect)
-- [ ] Implement render (script generation)
-- [ ] Implement doctor (AI context dump)
-- [ ] Implement graph (dependency visualization)
-- [ ] Implement init (machine scan → config generation)
-- [ ] Implement step subcommands (list, info, add)
-- [ ] Build terminal UI (progress, status, spinners)
-- [ ] Write bootstrap script
-- [ ] Set up GitHub releases with cross-compiled binaries
-- [ ] Write README
+### Phase 3: CLI Commands
+- [ ] **T10. CLI framework** — cobra setup, global flags, config auto-detection, output modes (human/JSON)
+- [ ] **T11. plan + apply** — pre-flight → execution → summary, progress UI, URL configs
+- [ ] **T12. status + capture** — drift detection, reverse sync (packages only v1)
+- [ ] **T13. install + remove + upgrade** — atomic operations, version pin respect
+- [ ] **T14. validate + graph** — deep validation, tree/dot visualization
+- [ ] **T15. render** — bash script generation, pre-flight checks, per-step blocks
+- [ ] **T16. init + doctor** — machine scanning, AI context dump
+- [ ] **T17. step list/info/add** — step library browsing and scaffolding
 
-### Phase 3: Polish & Extend
+### Phase 4: Distribution
+- [ ] **T18. Terminal UI** — spinners, progress, color detection (NO_COLOR, FORCE_COLOR)
+- [ ] **T19. Bootstrap + releases** — install.sh, goreleaser, GitHub releases (4 architectures)
+- [ ] **T20. README**
 
-- [ ] Shell hook for drift detection
+### Future (post-v1)
+- [ ] Shell hook for drift detection (brew wrapper)
 - [ ] `.env` file support for secrets
-- [ ] Interactive `capture` mode
-- [ ] Tags/profiles for conditional step execution
+- [ ] Interactive capture mode (checkbox UI)
+- [ ] Tags/profiles filtering (`apply --tags dev`)
 - [ ] Pre/post hooks on steps
 - [ ] Remote apply via SSH
 - [ ] Community step registry
 - [ ] Parallel execution for independent steps
+- [ ] Fedora/RHEL/Arch/Alpine adapters
+- [ ] Password manager integration (1Password, Bitwarden)
+
+---
+
+## Parallelization Plan
+
+| Wave | Tasks | Notes |
+|------|-------|-------|
+| 1 | T1 | Foundation — must be first |
+| 2 | T2, T19 | Config parser + bootstrap (independent) |
+| 3 | T3, T4, T5 | Include, step primitive, secrets (parallel, all need T2) |
+| 4 | T6, T7, T10 | DAG, adapters, CLI framework (parallel, need T4) |
+| 5 | T8, T9, T18 | Step library, runner, UI (parallel, need T6/T7) |
+| 6 | T11–T17 | All CLI commands (parallel, need T10 + various) |
+| 7 | T20 | README (last) |
 
 ---
 
@@ -86,6 +106,9 @@ The project has completed initial brainstorming and design decisions. The next p
 
 | Doc | Purpose |
 |-----|---------|
-| `docs/design-context.md` | Complete history, decisions, and reasoning — the "brief a new collaborator" doc |
-| `docs/brainstorming.md` | Detailed brainstorming with examples, CLI mockups, config samples, open questions |
-| `docs/objectives.md` | High-level problem statement, goals, design principles, scope boundaries |
+| `docs/design-context.md` | Complete history, decisions, and reasoning |
+| `docs/brainstorming.md` | Detailed brainstorming with examples, CLI mockups, config samples |
+| `docs/objectives.md` | High-level problem statement, goals, design principles, scope |
+| `~/.kerf/projects/machine-setup/machine-spec/` | Full kerf spec work (43 artifacts) |
+| `~/.kerf/.../05-spec-drafts/*.md` | The 12 formal spec documents |
+| `~/.kerf/.../07-tasks.md` | Detailed implementation tasks with acceptance criteria |
