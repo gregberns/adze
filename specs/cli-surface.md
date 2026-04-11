@@ -253,8 +253,8 @@ Print version, commit hash, and build date.
 |------|-------|--------|---------|
 | `--config` | `-c` | Explicit config file | `ADZE_CONFIG` |
 | `--json` | | Machine-readable JSON output | — |
-| `--verbose` | `-v` | Show command output | `DADO_LOG_LEVEL=debug` |
-| `--quiet` | `-q` | Errors only | `DADO_LOG_LEVEL=error` |
+| `--verbose` | `-v` | Show command output | `ADZE_LOG_LEVEL=debug` |
+| `--quiet` | `-q` | Errors only | `ADZE_LOG_LEVEL=error` |
 | `--no-color` | | Disable color | `NO_COLOR` |
 
 Flag precedence: explicit flag > environment variable > default.
