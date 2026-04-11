@@ -245,39 +245,7 @@ func TestStepSubcommands(t *testing.T) {
 
 // ---- Stub commands return errors ----
 
-func TestStubCommandsReturnError(t *testing.T) {
-	stubs := [][]string{
-		{"init"},
-		{"plan"},
-		{"apply"},
-		{"status"},
-		{"capture"},
-		{"install", "foo"},
-		{"remove", "foo"},
-		{"upgrade"},
-		{"validate"},
-		{"graph"},
-		{"render"},
-		{"doctor"},
-		{"step", "list"},
-		{"step", "info", "test-step"},
-		{"step", "add", "test-step"},
-	}
-
-	for _, args := range stubs {
-		t.Run(strings.Join(args, "_"), func(t *testing.T) {
-			root := NewRootCmd("dev", "none", "unknown")
-			root.SetArgs(args)
-			err := root.Execute()
-			if err == nil {
-				t.Errorf("expected error for stub command %v", args)
-			}
-			if !strings.Contains(err.Error(), "not yet implemented") {
-				t.Errorf("expected 'not yet implemented' error, got: %v", err)
-			}
-		})
-	}
-}
+// All commands are now fully implemented — no stubs remain.
 
 // ---- Config auto-detection ----
 
