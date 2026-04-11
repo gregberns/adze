@@ -256,7 +256,7 @@ func Resolve(steps []StepInput, platform string, known KnownBuiltIn) (*ResolvedG
 // A step with an empty Platforms list matches all platforms.
 func filterByPlatform(steps []StepInput, platform string) (active, filtered []StepInput) {
 	for _, s := range steps {
-		if len(s.Platforms) == 0 || containsString(s.Platforms, platform) {
+		if len(s.Platforms) == 0 || containsString(s.Platforms, platform) || containsString(s.Platforms, "any") {
 			active = append(active, s)
 		} else {
 			filtered = append(filtered, s)
