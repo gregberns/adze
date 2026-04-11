@@ -1,8 +1,9 @@
 package main
 
 import (
-	"fmt"
 	"os"
+
+	"github.com/gregberns/adze/internal/cli"
 )
 
 // Set via ldflags at build time.
@@ -13,12 +14,8 @@ var (
 )
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "version" {
-		fmt.Printf("adze %s (commit: %s, built: %s)\n", version, commit, date)
-		return
+	cmd := cli.NewRootCmd(version, commit, date)
+	if err := cmd.Execute(); err != nil {
+		os.Exit(1)
 	}
-
-	fmt.Println("adze - machine configuration tool")
-	fmt.Println("Run 'adze version' for version info")
-	os.Exit(0)
 }
