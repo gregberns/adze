@@ -56,6 +56,7 @@ type WarningCode string
 const (
 	W001 WarningCode = "W001" // identity.git_email not an email
 	W002 WarningCode = "W002" // directories duplicate entry
+	W003 WarningCode = "W003" // type mismatch during merge
 )
 
 // ValidationError represents a single validation error with a code, field path, and message.
