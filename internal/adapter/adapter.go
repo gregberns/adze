@@ -63,6 +63,7 @@ var (
 	ErrBrewCalledAsRoot      = errors.New("brew must not be called as root")
 	ErrPackagePinned         = errors.New("package is pinned")
 	ErrCaskPinNotSupported   = errors.New("cask pinning is not supported")
+	ErrNoVersionedFormula    = errors.New("version must be a major version number (e.g. \"20\" not \"20.11.0\")")
 	ErrVersionNotAvailable   = errors.New("version not available")
 	ErrDefaultsTypeMismatch  = errors.New("defaults type mismatch")
 	ErrDefaultsValueMismatch = errors.New("defaults value mismatch")

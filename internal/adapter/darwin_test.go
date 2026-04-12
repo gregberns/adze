@@ -604,11 +604,83 @@ func TestFormulaName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
-			got := formulaName(tt.pkg)
+			got, err := formulaName(tt.pkg)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 			if got != tt.want {
 				t.Errorf("formulaName(%+v) = %q, want %q", tt.pkg, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestFormulaName_ErrNoVersionedFormula(t *testing.T) {
+	tests := []struct {
+		name    string
+		version string
+	}{
+		{"node", "20.11.0"},
+		{"python", "3.12"},
+		{"go", "1.21.5"},
+		{"ruby", "3.2.1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name+"@"+tt.version, func(t *testing.T) {
+			_, err := formulaName(Package{Name: tt.name, Version: tt.version})
+			if err == nil {
+				t.Fatal("expected error for non-major version")
+			}
+			if !errors.Is(err, ErrNoVersionedFormula) {
+				t.Fatalf("expected ErrNoVersionedFormula, got %v", err)
+			}
+		})
+	}
+}
+
+// --- ErrNoVersionedFormula propagation through adapter methods ---
+
+func TestDarwinPackageCheck_ErrNoVersionedFormula(t *testing.T) {
+	runner := newMockRunner([]mockCall{
+		{name: "which", args: []string{"brew"}, out: "/opt/homebrew/bin/brew"},
+	})
+	d := NewDarwinAdapter(runner)
+	_, err := d.PackageCheck(Package{Name: "node", Version: "20.11.0"})
+	if !errors.Is(err, ErrNoVersionedFormula) {
+		t.Fatalf("expected ErrNoVersionedFormula, got %v", err)
+	}
+}
+
+func TestDarwinPackageInstall_ErrNoVersionedFormula(t *testing.T) {
+	runner := newMockRunner([]mockCall{
+		{name: "which", args: []string{"brew"}, out: "/opt/homebrew/bin/brew"},
+	})
+	d := NewDarwinAdapter(runner)
+	err := d.PackageInstall(Package{Name: "node", Version: "20.11.0"})
+	if !errors.Is(err, ErrNoVersionedFormula) {
+		t.Fatalf("expected ErrNoVersionedFormula, got %v", err)
+	}
+}
+
+func TestDarwinPackageUpgrade_ErrNoVersionedFormula(t *testing.T) {
+	runner := newMockRunner([]mockCall{
+		{name: "which", args: []string{"brew"}, out: "/opt/homebrew/bin/brew"},
+	})
+	d := NewDarwinAdapter(runner)
+	err := d.PackageUpgrade(Package{Name: "node", Version: "20.11.0"})
+	if !errors.Is(err, ErrNoVersionedFormula) {
+		t.Fatalf("expected ErrNoVersionedFormula, got %v", err)
+	}
+}
+
+func TestDarwinPackageRemove_ErrNoVersionedFormula(t *testing.T) {
+	runner := newMockRunner([]mockCall{
+		{name: "which", args: []string{"brew"}, out: "/opt/homebrew/bin/brew"},
+	})
+	d := NewDarwinAdapter(runner)
+	err := d.PackageRemove(Package{Name: "node", Version: "20.11.0"})
+	if !errors.Is(err, ErrNoVersionedFormula) {
+		t.Fatalf("expected ErrNoVersionedFormula, got %v", err)
 	}
 }
 
