@@ -134,7 +134,7 @@ func buildStepConfig(cfg *config.Config, platform string, def StepDefinition) *s
 		// Steps with no config section (core infra, languages, ssh-keys)
 		// are included if they are required by other steps, or always included.
 		// We include them so the DAG can resolve dependencies.
-		populateBuiltinCommands(sc, def, platform)
+		populateBuiltinCommands(sc, def, platform, cfg)
 	}
 
 	return sc
@@ -142,7 +142,7 @@ func buildStepConfig(cfg *config.Config, platform string, def StepDefinition) *s
 
 // populateBuiltinCommands sets default check/apply commands for steps that
 // don't read from config sections.
-func populateBuiltinCommands(sc *step.StepConfig, def StepDefinition, platform string) {
+func populateBuiltinCommands(sc *step.StepConfig, def StepDefinition, platform string, cfg *config.Config) {
 	switch def.Name {
 	case "xcode-cli-tools":
 		sc.Check = shellCmd("xcode-select -p")
@@ -187,7 +187,11 @@ func populateBuiltinCommands(sc *step.StepConfig, def StepDefinition, platform s
 
 	case "ssh-keys":
 		sc.Check = shellCmd(`[ -f "$HOME/.ssh/id_ed25519" ]`)
-		sc.Apply = shellCmd(`ssh-keygen -t ed25519 -f "$HOME/.ssh/id_ed25519" -N ""`)
+		if cfg.Identity.GitEmail != "" {
+			sc.Apply = shellCmd(fmt.Sprintf(`ssh-keygen -t ed25519 -f "$HOME/.ssh/id_ed25519" -N "" -C "%s"`, cfg.Identity.GitEmail))
+		} else {
+			sc.Apply = shellCmd(`ssh-keygen -t ed25519 -f "$HOME/.ssh/id_ed25519" -N ""`)
+		}
 	}
 }
 

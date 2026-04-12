@@ -306,8 +306,8 @@ func TestDarwinPackageRemove_Cask(t *testing.T) {
 
 func TestDarwinDefaultsRead(t *testing.T) {
 	runner := newMockRunner([]mockCall{
-		{name: "defaults", args: []string{"read", "com.apple.dock", "autohide"}, out: "1\n"},
-		{name: "defaults", args: []string{"read-type", "com.apple.dock", "autohide"}, out: "Type is boolean\n"},
+		{name: "sh", args: []string{"-c", "defaults read com.apple.dock autohide 2>/dev/null"}, out: "1\n"},
+		{name: "sh", args: []string{"-c", "defaults read-type com.apple.dock autohide 2>/dev/null"}, out: "Type is boolean\n"},
 	})
 	d := NewDarwinAdapter(runner)
 	val, err := d.DefaultsRead("com.apple.dock", "autohide")
@@ -324,7 +324,7 @@ func TestDarwinDefaultsRead(t *testing.T) {
 
 func TestDarwinDefaultsRead_NotExist(t *testing.T) {
 	runner := newMockRunner([]mockCall{
-		{name: "defaults", args: []string{"read", "com.example", "missing"}, err: fmt.Errorf("exit 1")},
+		{name: "sh", args: []string{"-c", "defaults read com.example missing 2>/dev/null"}, err: fmt.Errorf("exit 1")},
 	})
 	d := NewDarwinAdapter(runner)
 	_, err := d.DefaultsRead("com.example", "missing")

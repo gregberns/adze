@@ -61,17 +61,33 @@ func Render(cfg *config.Config, graph *dag.ResolvedGraph, stepConfigs []step.Ste
 	sb.WriteString("FAILED=0\n")
 	sb.WriteString("\n")
 
-	// 5. Pre-flight: check required env vars
+	// 5. Pre-flight: check required env vars using counter pattern
 	if len(requiredEnvVars) > 0 {
-		sb.WriteString("# Pre-flight: check required environment variables\n")
+		// Build description map for error messages
+		secretDescs := make(map[string]string, len(cfg.Secrets))
+		for _, s := range cfg.Secrets {
+			secretDescs[s.Name] = s.Description
+		}
+
+		sb.WriteString("# Pre-flight: Required Environment Variables\n")
+		sb.WriteString("missing=0\n")
 		for _, envVar := range requiredEnvVars {
+			desc := secretDescs[envVar]
+			descSuffix := ""
+			if desc != "" {
+				descSuffix = " (" + desc + ")"
+			}
 			comment := ""
 			if sensitiveSecrets[envVar] {
 				comment = " # (sensitive)"
 			}
-			sb.WriteString(fmt.Sprintf("if [ -z \"${%s:-}\" ]; then echo \"Error: required env var %s is not set\" >&2; exit 1; fi%s\n",
-				envVar, envVar, comment))
+			sb.WriteString(fmt.Sprintf("[ -z \"${%s:-}\" ] && echo \"ERROR: Missing required secret: %s%s\" >&2 && missing=$((missing + 1))%s\n",
+				envVar, envVar, descSuffix, comment))
 		}
+		sb.WriteString("if [ \"$missing\" -ne 0 ]; then\n")
+		sb.WriteString("  echo \"Set missing variables and re-run.\" >&2\n")
+		sb.WriteString("  exit 1\n")
+		sb.WriteString("fi\n")
 		sb.WriteString("\n")
 	}
 
@@ -133,6 +149,7 @@ func renderAtomicStep(sb *strings.Builder, sc *step.StepConfig, num, total int, 
 
 // writeApplyBlock writes the apply portion of an atomic step.
 func writeApplyBlock(sb *strings.Builder, applyCmd string, sc *step.StepConfig, sensitive map[string]bool, indent string) {
+	sb.WriteString(renderEnvSensitiveComment(sc.Env, sensitive, indent))
 	envPrefix := renderEnvPrefix(sc.Env, sensitive)
 	sb.WriteString(fmt.Sprintf("%s%s%s\n", indent, envPrefix, escapeForShell(applyCmd)))
 	sb.WriteString(fmt.Sprintf("%sif [ $? -eq 0 ]; then\n", indent))
@@ -158,11 +175,13 @@ func renderBatchStep(sb *strings.Builder, sc *step.StepConfig, num, total int, s
 		if itemCheckCmd != "" {
 			sb.WriteString(fmt.Sprintf("if %s &>/dev/null; then step_skip=$((step_skip + 1))\n", escapeForShell(itemCheckCmd)))
 			sb.WriteString("else\n")
+			sb.WriteString(renderEnvSensitiveComment(sc.Env, sensitive, "  "))
 			envPrefix := renderEnvPrefix(sc.Env, sensitive)
 			sb.WriteString(fmt.Sprintf("  %s%s\n", envPrefix, escapeForShell(itemApplyCmd)))
 			sb.WriteString(fmt.Sprintf("  if [ $? -eq 0 ]; then step_ok=$((step_ok + 1)); else echo \"  ✗ %s failed\" >&2; step_fail=$((step_fail + 1)); fi\n", item.Name))
 			sb.WriteString("fi\n")
 		} else if itemApplyCmd != "" {
+			sb.WriteString(renderEnvSensitiveComment(sc.Env, sensitive, ""))
 			envPrefix := renderEnvPrefix(sc.Env, sensitive)
 			sb.WriteString(fmt.Sprintf("%s%s\n", envPrefix, escapeForShell(itemApplyCmd)))
 			sb.WriteString(fmt.Sprintf("if [ $? -eq 0 ]; then step_ok=$((step_ok + 1)); else echo \"  ✗ %s failed\" >&2; step_fail=$((step_fail + 1)); fi\n", item.Name))
@@ -277,22 +296,32 @@ func shellCommandToString(cmd *step.ShellCommand) string {
 	return strings.Join(cmd.Args, " ")
 }
 
-// renderEnvPrefix generates environment variable export prefix for step commands.
+// renderEnvPrefix generates an inline environment variable prefix for step commands.
+// All env vars are referenced as VAR=${VAR} so literal secret values never appear
+// in the rendered script. Sensitive secrets get a preceding comment line emitted by
+// renderEnvSensitiveComment; the pre-flight section also marks them with # (sensitive).
 func renderEnvPrefix(env []string, sensitive map[string]bool) string {
 	if len(env) == 0 {
 		return ""
 	}
 	var parts []string
 	for _, e := range env {
-		comment := ""
-		if sensitive[e] {
-			comment = " # (sensitive)"
-		}
-		parts = append(parts, fmt.Sprintf("%s=${%s}%s", e, e, comment))
+		parts = append(parts, fmt.Sprintf("%s=${%s}", e, e))
 	}
-	// This is tricky with comments; for simplicity, put env exports on their own lines
-	// Actually, for inline use, just reference the vars
-	return ""
+	return strings.Join(parts, " ") + " "
+}
+
+// renderEnvSensitiveComment returns comment lines for any sensitive env vars
+// referenced by a step, per spec requirement that sensitive secrets include
+// a "# (sensitive — value not embedded)" comment where referenced.
+func renderEnvSensitiveComment(env []string, sensitive map[string]bool, indent string) string {
+	var sb strings.Builder
+	for _, e := range env {
+		if sensitive[e] {
+			sb.WriteString(fmt.Sprintf("%s# %s (sensitive — value not embedded)\n", indent, e))
+		}
+	}
+	return sb.String()
 }
 
 // escapeForShell returns the command as-is (already shell-safe from step configs).
