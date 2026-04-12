@@ -62,8 +62,11 @@ func (d *DarwinAdapter) PackageCheck(pkg Package) (bool, error) {
 		return true, nil
 	}
 
-	name := formulaName(pkg)
-	_, err := d.run("brew", "list", "--formula", name)
+	name, err := formulaName(pkg)
+	if err != nil {
+		return false, err
+	}
+	_, err = d.run("brew", "list", "--formula", name)
 	if err != nil {
 		return false, nil
 	}
@@ -88,8 +91,11 @@ func (d *DarwinAdapter) PackageInstall(pkg Package) error {
 		return nil
 	}
 
-	name := formulaName(pkg)
-	_, err := d.run("brew", "install", name)
+	name, err := formulaName(pkg)
+	if err != nil {
+		return err
+	}
+	_, err = d.run("brew", "install", name)
 	if err != nil {
 		return fmt.Errorf("brew install %s failed: %w", name, err)
 	}
@@ -146,8 +152,11 @@ func (d *DarwinAdapter) PackageUpgrade(pkg Package) error {
 		return nil
 	}
 
-	name := formulaName(pkg)
-	_, err := d.run("brew", "upgrade", name)
+	name, err := formulaName(pkg)
+	if err != nil {
+		return err
+	}
+	_, err = d.run("brew", "upgrade", name)
 	if err != nil {
 		return fmt.Errorf("brew upgrade %s failed: %w", name, err)
 	}
@@ -168,14 +177,17 @@ func (d *DarwinAdapter) PackageRemove(pkg Package) error {
 		return nil
 	}
 
-	name := formulaName(pkg)
+	name, err := formulaName(pkg)
+	if err != nil {
+		return err
+	}
 
 	// Unpin before removing if pinned.
 	if pkg.Pinned {
 		_, _ = d.run("brew", "unpin", name)
 	}
 
-	_, err := d.run("brew", "uninstall", name)
+	_, err = d.run("brew", "uninstall", name)
 	if err != nil {
 		return fmt.Errorf("brew uninstall %s failed: %w", name, err)
 	}
@@ -384,11 +396,16 @@ func (d *DarwinAdapter) ListAllInstalled() ([]InstalledPackage, error) {
 
 // formulaName returns the appropriate formula name for Homebrew.
 // If a version is specified, it appends @<version> (major version only).
-func formulaName(pkg Package) string {
-	if pkg.Version != "" {
-		return pkg.Name + "@" + pkg.Version
+// Returns ErrNoVersionedFormula if the version contains dots or is not
+// a simple integer/major version string.
+func formulaName(pkg Package) (string, error) {
+	if pkg.Version == "" {
+		return pkg.Name, nil
 	}
-	return pkg.Name
+	if strings.Contains(pkg.Version, ".") {
+		return "", fmt.Errorf("%w: %s version %q", ErrNoVersionedFormula, pkg.Name, pkg.Version)
+	}
+	return pkg.Name + "@" + pkg.Version, nil
 }
 
 // parseDefaultsType extracts the type name from `defaults read-type` output.
