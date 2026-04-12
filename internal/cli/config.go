@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 
+	"github.com/gregberns/adze/internal/adapter"
 	cfgpkg "github.com/gregberns/adze/internal/config"
 )
 
@@ -84,14 +84,14 @@ func autoDetectConfigWithPlatform(dir string, platform string) (string, error) {
 }
 
 // currentPlatform maps runtime.GOOS to the platform values used in config files.
+// It delegates to adapter.DetectPlatform() which reads /etc/os-release on Linux
+// to resolve "linux" to the correct distro family (e.g. "ubuntu").
 func currentPlatform() string {
-	switch runtime.GOOS {
-	case "darwin":
-		return "darwin"
-	case "linux":
-		// Could be ubuntu, debian, etc. For now we check both.
-		return runtime.GOOS
-	default:
-		return runtime.GOOS
+	platform, err := adapter.DetectPlatform()
+	if err != nil {
+		// Fallback: return empty string so no config matches and the user gets
+		// a clear "no adze config file found" error with guidance.
+		return ""
 	}
+	return platform
 }

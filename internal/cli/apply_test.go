@@ -183,14 +183,22 @@ func TestApplyWithMissingRequiredSecret(t *testing.T) {
 	os.Unsetenv("GITHUB_TOKEN")
 
 	root := NewRootCmd("dev", "none", "unknown")
+	buf := new(bytes.Buffer)
+	root.SetOut(buf)
 	root.SetArgs([]string{"apply", "--config", cfgPath, "--yes"})
 	err := root.Execute()
-	if err == nil {
-		t.Fatal("expected error for missing required secret")
-	}
-	code := ExitCodeFromError(err)
-	if code != ExitPreFlightFail {
-		t.Errorf("expected exit code %d (PreFlightFail), got %d", ExitPreFlightFail, code)
+
+	// Per spec, missing required secrets should NOT abort the entire run.
+	// Only steps referencing the missing secret are skipped; other steps
+	// proceed. With configWithSecrets() (no steps reference the secret),
+	// the run should complete without a pre-flight error.
+	if err != nil {
+		code := ExitCodeFromError(err)
+		// ExitPreFlightFail is no longer expected for missing secrets.
+		// Acceptable codes: 0 (success), 4 (all failed), 5 (partial).
+		if code == ExitPreFlightFail {
+			t.Errorf("missing secret should not cause ExitPreFlightFail; per-step skipping should handle it. Got error: %v", err)
+		}
 	}
 }
 

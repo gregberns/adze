@@ -118,17 +118,17 @@ func runApply(cmd *cobra.Command, args []string) error {
 	sm := secrets.NewSecretManager(cfg.Secrets)
 	ctx := context.Background()
 	secretInteractive := interactive && !yesFlag
-	secretResults := sm.Validate(ctx, secretInteractive)
+	sm.Validate(ctx, secretInteractive)
 
-	// Check for required secrets that are still missing
-	for _, sr := range secretResults {
-		if sr.Status == "missing" || sr.Status == "invalid" {
-			return &exitError{
-				Code: ExitPreFlightFail,
-				Err:  fmt.Errorf("required secret %q is %s", sr.Name, sr.Status),
-			}
-		}
-	}
+	// Wire the masking filter into the output writer so sensitive secret
+	// values are replaced with *** in all progress and summary output.
+	mask := sm.GetMask()
+	w = mask.WrapWriter(w)
+
+	// Note: we do NOT abort here for missing/invalid required secrets.
+	// Per spec, only steps that reference the missing secret should be
+	// skipped; other steps proceed normally. The runner's EnvChecker
+	// callback (via makeEnvChecker) handles per-step skipping.
 
 	// 7. If any steps require sudo, acquire privileges
 	needsSudo := false
