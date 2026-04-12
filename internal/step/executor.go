@@ -51,7 +51,7 @@ func ExecuteStep(ctx context.Context, s Step, cfg StepConfig, platform string, e
 			if required && !present {
 				return StepResult{
 					Status:   StatusSkipped,
-					Reason:   fmt.Sprintf("required env var %q not set", envName),
+					Reason:   fmt.Sprintf("missing required env var: %s", envName),
 					Duration: time.Since(start),
 				}, nil
 			}
@@ -94,7 +94,7 @@ func ExecuteStep(ctx context.Context, s Step, cfg StepConfig, platform string, e
 	if applyCtx.Err() != nil {
 		return StepResult{
 			Status:   StatusFailed,
-			Reason:   "timed out",
+			Reason:   fmt.Sprintf("timed out after %s", applyTimeout),
 			Duration: time.Since(start),
 		}, nil
 	}
@@ -141,11 +141,10 @@ func runCheck(ctx context.Context, s Step, cfg StepConfig, timeout time.Duration
 		return StepResult{}, err
 	}
 
-	// If check timed out, treat as unsatisfied (log warning, continue).
+	// If check timed out, treat as unsatisfied (not as a failure): log warning, continue to apply.
 	if checkCtx.Err() != nil {
 		log.Printf("[step:%s][check] timed out after %s, treating as unsatisfied", cfg.Name, timeout)
 		return StepResult{
-			Status: StatusFailed,
 			Reason: "check timed out",
 		}, nil
 	}
@@ -223,7 +222,7 @@ func ExecuteBatchStep(ctx context.Context, s Step, cfg StepConfig, platform stri
 			if required && !present {
 				return StepResult{
 					Status:   StatusSkipped,
-					Reason:   fmt.Sprintf("required env var %q not set", envName),
+					Reason:   fmt.Sprintf("missing required env var: %s", envName),
 					Duration: time.Since(start),
 				}, nil
 			}
@@ -291,7 +290,7 @@ func ExecuteBatchStep(ctx context.Context, s Step, cfg StepConfig, platform stri
 		if applyTimedOut || applyResult.Status == StatusFailed {
 			reason := applyResult.Reason
 			if applyTimedOut {
-				reason = "timed out"
+				reason = fmt.Sprintf("timed out after %s", applyTimeout)
 			}
 			itemResults = append(itemResults, ItemResult{
 				Item:   item,

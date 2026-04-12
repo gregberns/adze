@@ -172,6 +172,10 @@ func TestExecuteStepMissingEnvVar(t *testing.T) {
 	if result.Reason == "" {
 		t.Error("expected non-empty reason for skipped step")
 	}
+	expectedReason := "missing required env var: MISSING_VAR"
+	if result.Reason != expectedReason {
+		t.Errorf("expected reason %q, got %q", expectedReason, result.Reason)
+	}
 }
 
 // TestExecuteStepEnvPresent verifies that present env vars allow normal execution.
@@ -374,6 +378,10 @@ func TestExecuteStepApplyTimeout(t *testing.T) {
 	}
 	if result.Status != StatusFailed {
 		t.Errorf("expected failed, got %s", result.Status)
+	}
+	expectedReason := fmt.Sprintf("timed out after %s", 100*time.Millisecond)
+	if result.Reason != expectedReason {
+		t.Errorf("expected reason %q, got %q", expectedReason, result.Reason)
 	}
 }
 
@@ -660,6 +668,10 @@ func TestBatchStepMissingEnv(t *testing.T) {
 	}
 	if result.Status != StatusSkipped {
 		t.Errorf("expected skipped, got %s", result.Status)
+	}
+	expectedReason := "missing required env var: MISSING"
+	if result.Reason != expectedReason {
+		t.Errorf("expected reason %q, got %q", expectedReason, result.Reason)
 	}
 }
 
