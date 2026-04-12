@@ -231,10 +231,11 @@ func validatePackageList(entries []PackageEntry, path string, errs *[]Validation
 		}
 
 		// E020 is checked at parse time (version tag inspection)
-		// E021: version empty if present -- we need to check if version key was in the YAML
-		// This is tricky since we lose that info after parsing. We handle it at parse time
-		// for object form entries. For now, if version is "" and it was explicitly set,
-		// that's handled in the node parser.
+		// E021: version empty if present
+		if e.VersionPresent && e.Version == "" {
+			*errs = append(*errs, newError(E021, fmt.Sprintf("%s[%d].version", path, i),
+				fmt.Sprintf("%s[%d].version: must not be empty if present", path, i)))
+		}
 
 		if e.Name != "" {
 			if seen[e.Name] {
@@ -321,6 +322,19 @@ func validateCustomSteps(cfg *Config, errs *[]ValidationError) {
 				*errs = append(*errs, newError(E033, fmt.Sprintf("custom_steps.%s.provides[%d]", name, i),
 					fmt.Sprintf("custom_steps.%s.provides[%d]: must be a non-empty string without whitespace", name, i)))
 			}
+		}
+
+		// SEM-23: provides entries must be unique within the list
+		seenProvides := make(map[string]bool)
+		for i, p := range step.Provides {
+			if p == "" {
+				continue
+			}
+			if seenProvides[p] {
+				*errs = append(*errs, newError(E033, fmt.Sprintf("custom_steps.%s.provides[%d]", name, i),
+					fmt.Sprintf("custom_steps.%s.provides: duplicate entry %q", name, p)))
+			}
+			seenProvides[p] = true
 		}
 
 		// E034: requires elements

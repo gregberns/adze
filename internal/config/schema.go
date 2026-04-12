@@ -49,9 +49,10 @@ type PackagesConfig struct {
 // PackageEntry represents a package to install, supporting both short form (string)
 // and object form (mapping with name, version, pinned).
 type PackageEntry struct {
-	Name    string `yaml:"name"`
-	Version string `yaml:"version"`
-	Pinned  bool   `yaml:"pinned"`
+	Name           string `yaml:"name"`
+	Version        string `yaml:"version"`
+	Pinned         bool   `yaml:"pinned"`
+	VersionPresent bool   `yaml:"-"` // tracks whether version key was explicitly present in YAML
 }
 
 // DefaultValue holds a macOS defaults value. It can be bool, int, float64, or string.

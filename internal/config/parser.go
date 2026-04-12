@@ -99,10 +99,18 @@ func parseFromNode(root *yaml.Node) (*Config, []ValidationError, []ValidationWar
 
 	// Parse each known field from its node
 	if node, ok := fieldNodes["name"]; ok {
-		cfg.Name = node.Value
+		if node.Tag == "!!null" {
+			errs = append(errs, newError(E042, "name", "name: expected string, got null"))
+		} else {
+			cfg.Name = node.Value
+		}
 	}
 	if node, ok := fieldNodes["platform"]; ok {
-		cfg.Platform = node.Value
+		if node.Tag == "!!null" {
+			errs = append(errs, newError(E042, "platform", "platform: expected string, got null"))
+		} else {
+			cfg.Platform = node.Value
+		}
 	}
 	if node, ok := fieldNodes["tags"]; ok {
 		parseTags(node, cfg, &errs)
@@ -195,7 +203,10 @@ func parseMachine(node *yaml.Node, cfg *Config, errs *[]ValidationError) {
 		val := node.Content[i+1]
 		switch key {
 		case "hostname":
-			if val.Tag != "!!null" {
+			if val.Tag == "!!null" {
+				*errs = append(*errs, newError(E042, "machine.hostname",
+					"machine.hostname: expected string, got null"))
+			} else {
 				cfg.Machine.Hostname = val.Value
 			}
 		default:
@@ -218,15 +229,24 @@ func parseIdentity(node *yaml.Node, cfg *Config, errs *[]ValidationError, warns 
 		val := node.Content[i+1]
 		switch key {
 		case "git_name":
-			if val.Tag != "!!null" {
+			if val.Tag == "!!null" {
+				*errs = append(*errs, newError(E042, "identity.git_name",
+					"identity.git_name: expected string, got null"))
+			} else {
 				cfg.Identity.GitName = val.Value
 			}
 		case "git_email":
-			if val.Tag != "!!null" {
+			if val.Tag == "!!null" {
+				*errs = append(*errs, newError(E042, "identity.git_email",
+					"identity.git_email: expected string, got null"))
+			} else {
 				cfg.Identity.GitEmail = val.Value
 			}
 		case "github_user":
-			if val.Tag != "!!null" {
+			if val.Tag == "!!null" {
+				*errs = append(*errs, newError(E042, "identity.github_user",
+					"identity.github_user: expected string, got null"))
+			} else {
 				cfg.Identity.GithubUser = val.Value
 			}
 		default:
@@ -255,17 +275,47 @@ func parseSecrets(node *yaml.Node, cfg *Config, errs *[]ValidationError) {
 			val := item.Content[j+1]
 			switch key {
 			case "name":
-				entry.Name = val.Value
+				if val.Tag == "!!null" {
+					*errs = append(*errs, newError(E042, "secrets[].name",
+						"secrets[].name: expected string, got null"))
+				} else {
+					entry.Name = val.Value
+				}
 			case "description":
-				entry.Description = val.Value
+				if val.Tag == "!!null" {
+					*errs = append(*errs, newError(E042, "secrets[].description",
+						"secrets[].description: expected string, got null"))
+				} else {
+					entry.Description = val.Value
+				}
 			case "required":
-				entry.Required = val.Value == "true"
+				if val.Tag == "!!null" {
+					*errs = append(*errs, newError(E042, "secrets[].required",
+						"secrets[].required: expected bool, got null"))
+				} else {
+					entry.Required = val.Value == "true"
+				}
 			case "sensitive":
-				entry.Sensitive = val.Value == "true"
+				if val.Tag == "!!null" {
+					*errs = append(*errs, newError(E042, "secrets[].sensitive",
+						"secrets[].sensitive: expected bool, got null"))
+				} else {
+					entry.Sensitive = val.Value == "true"
+				}
 			case "validate":
-				entry.Validate = val.Value
+				if val.Tag == "!!null" {
+					*errs = append(*errs, newError(E042, "secrets[].validate",
+						"secrets[].validate: expected string, got null"))
+				} else {
+					entry.Validate = val.Value
+				}
 			case "prompt":
-				entry.Prompt = val.Value == "true"
+				if val.Tag == "!!null" {
+					*errs = append(*errs, newError(E042, "secrets[].prompt",
+						"secrets[].prompt: expected bool, got null"))
+				} else {
+					entry.Prompt = val.Value == "true"
+				}
 			default:
 				*errs = append(*errs, newError(E043, "secrets[]."+key,
 					fmt.Sprintf("secrets[].%s: unknown field; valid fields are: name, description, required, sensitive, validate, prompt", key)))
@@ -319,7 +369,13 @@ func parsePackageList(node *yaml.Node, path string, errs *[]ValidationError) []P
 				valNode := item.Content[j+1]
 				switch keyNode.Value {
 				case "name":
-					entry.Name = valNode.Value
+					if valNode.Tag == "!!null" {
+						*errs = append(*errs, newError(E042,
+							fmt.Sprintf("%s[%d].name", path, idx),
+							fmt.Sprintf("%s[%d].name: expected string, got null", path, idx)))
+					} else {
+						entry.Name = valNode.Value
+					}
 				case "version":
 					// Check for unquoted numeric: inspect the YAML tag
 					if valNode.Tag == "!!float" || valNode.Tag == "!!int" {
@@ -328,13 +384,23 @@ func parsePackageList(node *yaml.Node, path string, errs *[]ValidationError) []P
 							fmt.Sprintf("%s[%d].version: version values must be quoted strings (e.g., version: \"3.11\" not version: 3.11); unquoted numeric versions lose precision", path, idx)))
 						// Still store the raw value for the struct
 						entry.Version = valNode.Value
+						entry.VersionPresent = true
 					} else if valNode.Tag == "!!null" {
-						entry.Version = ""
+						*errs = append(*errs, newError(E042,
+							fmt.Sprintf("%s[%d].version", path, idx),
+							fmt.Sprintf("%s[%d].version: expected string, got null", path, idx)))
 					} else {
 						entry.Version = valNode.Value
+						entry.VersionPresent = true
 					}
 				case "pinned":
-					entry.Pinned = valNode.Value == "true"
+					if valNode.Tag == "!!null" {
+						*errs = append(*errs, newError(E042,
+							fmt.Sprintf("%s[%d].pinned", path, idx),
+							fmt.Sprintf("%s[%d].pinned: expected bool, got null", path, idx)))
+					} else {
+						entry.Pinned = valNode.Value == "true"
+					}
 				default:
 					*errs = append(*errs, newError(E043,
 						fmt.Sprintf("%s[%d].%s", path, idx, keyNode.Value),
@@ -484,13 +550,24 @@ func parseShell(node *yaml.Node, cfg *Config, errs *[]ValidationError) {
 		val := node.Content[i+1]
 		switch key {
 		case "default":
-			if val.Tag != "!!null" {
+			if val.Tag == "!!null" {
+				*errs = append(*errs, newError(E042, "shell.default",
+					"shell.default: expected string, got null"))
+			} else {
 				cfg.Shell.Default = val.Value
 			}
 		case "oh_my_zsh":
-			cfg.Shell.OhMyZsh = val.Value == "true"
+			if val.Tag == "!!null" {
+				*errs = append(*errs, newError(E042, "shell.oh_my_zsh",
+					"shell.oh_my_zsh: expected bool, got null"))
+			} else {
+				cfg.Shell.OhMyZsh = val.Value == "true"
+			}
 		case "theme":
-			if val.Tag != "!!null" {
+			if val.Tag == "!!null" {
+				*errs = append(*errs, newError(E042, "shell.theme",
+					"shell.theme: expected string, got null"))
+			} else {
 				cfg.Shell.Theme = val.Value
 			}
 		case "plugins":
@@ -563,7 +640,11 @@ func parseCustomSteps(node *yaml.Node, cfg *Config, errs *[]ValidationError) {
 				val := stepNode.Content[j+1]
 				switch key {
 				case "description":
-					if val.Tag != "!!null" {
+					if val.Tag == "!!null" {
+						*errs = append(*errs, newError(E042,
+							fmt.Sprintf("custom_steps.%s.description", name),
+							fmt.Sprintf("custom_steps.%s.description: expected string, got null", name)))
+					} else {
 						step.Description = val.Value
 					}
 				case "provides":
@@ -576,7 +657,11 @@ func parseCustomSteps(node *yaml.Node, cfg *Config, errs *[]ValidationError) {
 						step.Platform = []string{"any"}
 					}
 				case "check":
-					if val.Tag != "!!null" {
+					if val.Tag == "!!null" {
+						*errs = append(*errs, newError(E042,
+							fmt.Sprintf("custom_steps.%s.check", name),
+							fmt.Sprintf("custom_steps.%s.check: expected string, got null", name)))
+					} else {
 						step.Check = val.Value
 					}
 				case "apply":

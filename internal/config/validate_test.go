@@ -498,10 +498,70 @@ packages:
 }
 
 // --- E021: packages version empty if present ---
-// Note: This requires version key to be present but empty. With YAML node parsing,
-// an empty value like `version: ""` gives an empty string. However, the spec says
-// "must not be empty if present" -- we check this in the node parser for the explicit
-// key-is-present-but-value-is-empty case.
+
+func TestE021_VersionEmptyIfPresent(t *testing.T) {
+	input := `
+name: test
+platform: darwin
+packages:
+  brew:
+    - name: terraform
+      version: ""
+`
+	_, errs, _, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertHasError(t, errs, E021)
+}
+
+func TestE021_VersionAbsentIsOK(t *testing.T) {
+	// When version key is absent entirely, no E021
+	input := `
+name: test
+platform: darwin
+packages:
+  brew:
+    - name: terraform
+`
+	_, errs, _, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertNoError(t, errs, E021)
+}
+
+func TestE021_VersionNonEmptyIsOK(t *testing.T) {
+	input := `
+name: test
+platform: darwin
+packages:
+  brew:
+    - name: terraform
+      version: "1.7.5"
+`
+	_, errs, _, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertNoError(t, errs, E021)
+}
+
+func TestE021_ShortFormNoE021(t *testing.T) {
+	// Short form packages should never trigger E021
+	input := `
+name: test
+platform: darwin
+packages:
+  brew:
+    - terraform
+`
+	_, errs, _, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertNoError(t, errs, E021)
+}
 
 // --- E022: packages duplicate name ---
 
@@ -823,6 +883,67 @@ custom_steps:
 	assertHasError(t, errs, E033)
 }
 
+// --- SEM-23: custom_steps provides uniqueness ---
+
+func TestSEM23_ProvidesDuplicate(t *testing.T) {
+	input := `
+name: test
+platform: darwin
+custom_steps:
+  my-step:
+    provides: [foo, bar, foo]
+`
+	_, errs, _, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertHasError(t, errs, E033)
+	assertErrorContains(t, errs, E033, "duplicate entry")
+}
+
+func TestSEM23_ProvidesUnique(t *testing.T) {
+	input := `
+name: test
+platform: darwin
+custom_steps:
+  my-step:
+    provides: [foo, bar, baz]
+`
+	_, errs, _, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should not have a duplicate provides error
+	for _, e := range errs {
+		if e.Code == E033 && strings.Contains(e.Message, "duplicate") {
+			t.Errorf("unexpected duplicate provides error: %v", e)
+		}
+	}
+}
+
+func TestSEM23_ProvidesDuplicateMultipleSteps(t *testing.T) {
+	// Duplicate within the same step's provides should error,
+	// but same provides value in different steps should be OK
+	input := `
+name: test
+platform: darwin
+custom_steps:
+  step-a:
+    provides: [foo]
+  step-b:
+    provides: [foo]
+`
+	_, errs, _, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, e := range errs {
+		if e.Code == E033 && strings.Contains(e.Message, "duplicate") {
+			t.Errorf("unexpected duplicate provides error across steps: %v", e)
+		}
+	}
+}
+
 // --- E034: custom_steps requires element invalid ---
 
 func TestE034_RequiresEmpty(t *testing.T) {
@@ -1047,6 +1168,164 @@ include: "not a list"
 		t.Fatalf("unexpected error: %v", err)
 	}
 	assertHasError(t, errs, E042)
+}
+
+// --- TYP-04: null values rejected for scalar fields ---
+
+func TestTYP04_NullMachineHostname(t *testing.T) {
+	input := `
+name: test
+platform: darwin
+machine:
+  hostname: null
+`
+	_, errs, _, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertHasError(t, errs, E042)
+	assertErrorContains(t, errs, E042, "machine.hostname")
+}
+
+func TestTYP04_NullIdentityFields(t *testing.T) {
+	input := `
+name: test
+platform: darwin
+identity:
+  git_name: null
+  git_email: null
+  github_user: null
+`
+	_, errs, _, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should get 3 E042 errors, one for each null identity field
+	count := 0
+	for _, e := range errs {
+		if e.Code == E042 && strings.Contains(e.Message, "identity.") {
+			count++
+		}
+	}
+	if count != 3 {
+		t.Errorf("expected 3 E042 errors for null identity fields, got %d; errors: %v", count, errs)
+	}
+}
+
+func TestTYP04_NullShellScalarFields(t *testing.T) {
+	input := `
+name: test
+platform: darwin
+shell:
+  default: null
+  oh_my_zsh: null
+  theme: null
+`
+	_, errs, _, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	count := 0
+	for _, e := range errs {
+		if e.Code == E042 && strings.Contains(e.Message, "shell.") {
+			count++
+		}
+	}
+	if count != 3 {
+		t.Errorf("expected 3 E042 errors for null shell fields, got %d; errors: %v", count, errs)
+	}
+}
+
+func TestTYP04_NullCustomStepScalarFields(t *testing.T) {
+	input := `
+name: test
+platform: darwin
+custom_steps:
+  my-step:
+    description: null
+    check: null
+`
+	_, errs, _, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	count := 0
+	for _, e := range errs {
+		if e.Code == E042 && strings.Contains(e.Message, "custom_steps.") {
+			count++
+		}
+	}
+	if count != 2 {
+		t.Errorf("expected 2 E042 errors for null custom_step fields, got %d; errors: %v", count, errs)
+	}
+}
+
+func TestTYP04_NullPackageEntryFields(t *testing.T) {
+	input := `
+name: test
+platform: darwin
+packages:
+  brew:
+    - name: null
+      version: null
+      pinned: null
+`
+	_, errs, _, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	count := 0
+	for _, e := range errs {
+		if e.Code == E042 && strings.Contains(e.Message, "packages.brew") {
+			count++
+		}
+	}
+	if count != 3 {
+		t.Errorf("expected 3 E042 errors for null package entry fields, got %d; errors: %v", count, errs)
+	}
+}
+
+func TestTYP04_NullSecretFields(t *testing.T) {
+	input := `
+name: test
+platform: darwin
+secrets:
+  - name: null
+    required: null
+`
+	_, errs, _, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	count := 0
+	for _, e := range errs {
+		if e.Code == E042 && strings.Contains(e.Message, "secrets[]") {
+			count++
+		}
+	}
+	if count != 2 {
+		t.Errorf("expected 2 E042 errors for null secret fields, got %d; errors: %v", count, errs)
+	}
+}
+
+func TestTYP04_NullNameAndPlatform(t *testing.T) {
+	input := `
+name: null
+platform: null
+`
+	_, errs, _, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	count := 0
+	for _, e := range errs {
+		if e.Code == E042 {
+			count++
+		}
+	}
+	if count != 2 {
+		t.Errorf("expected 2 E042 errors for null name and platform, got %d; errors: %v", count, errs)
+	}
 }
 
 // --- Warning separation ---
