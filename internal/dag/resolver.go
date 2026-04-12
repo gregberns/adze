@@ -37,18 +37,6 @@ func Resolve(steps []StepInput, platform string, known KnownBuiltIn) (*ResolvedG
 			allProviders[cap] = append(allProviders[cap], providerInfo{name: s.Name, builtIn: s.BuiltIn})
 		}
 	}
-	// Also consider filtered-out steps for platform-filtered breakage detection.
-	for i := range filtered {
-		s := &filtered[i]
-		for _, cap := range s.Provides {
-			// Only add to allProviders if not already there from active steps.
-			// We need these for platform-filtered breakage but not for duplicate detection
-			// among active steps.
-			_ = s
-			_ = cap
-		}
-	}
-
 	// Check duplicate provides among active steps.
 	for cap, providers := range allProviders {
 		if len(providers) > 1 {

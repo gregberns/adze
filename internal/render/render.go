@@ -117,7 +117,7 @@ func renderAtomicStep(sb *strings.Builder, sc *step.StepConfig, num, total int, 
 
 	if checkCmd != "" {
 		sb.WriteString(fmt.Sprintf("if %s &>/dev/null; then\n", escapeForShell(checkCmd)))
-		sb.WriteString("  echo \"  \\xe2\\x9c\\x93 already satisfied\"\n")
+		sb.WriteString("  echo \"  ✓ already satisfied\"\n")
 		sb.WriteString("  SKIPPED=$((SKIPPED + 1))\n")
 		sb.WriteString("else\n")
 		writeApplyBlock(sb, applyCmd, sc, sensitive, "  ")
@@ -136,10 +136,10 @@ func writeApplyBlock(sb *strings.Builder, applyCmd string, sc *step.StepConfig, 
 	envPrefix := renderEnvPrefix(sc.Env, sensitive)
 	sb.WriteString(fmt.Sprintf("%s%s%s\n", indent, envPrefix, escapeForShell(applyCmd)))
 	sb.WriteString(fmt.Sprintf("%sif [ $? -eq 0 ]; then\n", indent))
-	sb.WriteString(fmt.Sprintf("%s  echo \"  \\xe2\\x9c\\x93 applied\"\n", indent))
+	sb.WriteString(fmt.Sprintf("%s  echo \"  ✓ applied\"\n", indent))
 	sb.WriteString(fmt.Sprintf("%s  SUCCEEDED=$((SUCCEEDED + 1))\n", indent))
 	sb.WriteString(fmt.Sprintf("%selse\n", indent))
-	sb.WriteString(fmt.Sprintf("%s  echo \"  \\xe2\\x9c\\x97 FAILED\" >&2\n", indent))
+	sb.WriteString(fmt.Sprintf("%s  echo \"  ✗ FAILED\" >&2\n", indent))
 	sb.WriteString(fmt.Sprintf("%s  FAILED=$((FAILED + 1))\n", indent))
 	sb.WriteString(fmt.Sprintf("%sfi\n", indent))
 }
@@ -160,12 +160,12 @@ func renderBatchStep(sb *strings.Builder, sc *step.StepConfig, num, total int, s
 			sb.WriteString("else\n")
 			envPrefix := renderEnvPrefix(sc.Env, sensitive)
 			sb.WriteString(fmt.Sprintf("  %s%s\n", envPrefix, escapeForShell(itemApplyCmd)))
-			sb.WriteString(fmt.Sprintf("  if [ $? -eq 0 ]; then step_ok=$((step_ok + 1)); else echo \"  \\xe2\\x9c\\x97 %s failed\" >&2; step_fail=$((step_fail + 1)); fi\n", item.Name))
+			sb.WriteString(fmt.Sprintf("  if [ $? -eq 0 ]; then step_ok=$((step_ok + 1)); else echo \"  ✗ %s failed\" >&2; step_fail=$((step_fail + 1)); fi\n", item.Name))
 			sb.WriteString("fi\n")
 		} else if itemApplyCmd != "" {
 			envPrefix := renderEnvPrefix(sc.Env, sensitive)
 			sb.WriteString(fmt.Sprintf("%s%s\n", envPrefix, escapeForShell(itemApplyCmd)))
-			sb.WriteString(fmt.Sprintf("if [ $? -eq 0 ]; then step_ok=$((step_ok + 1)); else echo \"  \\xe2\\x9c\\x97 %s failed\" >&2; step_fail=$((step_fail + 1)); fi\n", item.Name))
+			sb.WriteString(fmt.Sprintf("if [ $? -eq 0 ]; then step_ok=$((step_ok + 1)); else echo \"  ✗ %s failed\" >&2; step_fail=$((step_fail + 1)); fi\n", item.Name))
 		}
 	}
 
