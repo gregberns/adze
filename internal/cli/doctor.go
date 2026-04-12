@@ -171,7 +171,7 @@ func buildStepInputs(registry *steps.Registry, cfg *cfgpkg.Config, platform stri
 		inputs = append(inputs, dag.StepInput{
 			Name:      def.Name,
 			Provides:  def.Provides,
-			Requires:  def.Requires,
+			Requires:  def.RequiresForPlatform(platform),
 			Platforms: def.Platforms,
 			BuiltIn:   true,
 		})

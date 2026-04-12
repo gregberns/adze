@@ -16,9 +16,22 @@ type StepDefinition struct {
 	Type          string   // "atomic" or "batch"
 	Platforms     []string // e.g., ["darwin"], ["ubuntu", "debian"], ["any"]
 	Provides      []string
-	Requires      []string
+	Requires      []string            // default requires (used when PlatformRequires has no entry for the platform)
+	PlatformRequires map[string][]string // platform → requires override (e.g., "darwin" → ["homebrew"], "ubuntu" → ["apt-essentials"])
 	ConfigSection string // e.g., "packages.brew", "defaults", "shell.plugins", or ""
 	Constructor   func() step.Step
+}
+
+// RequiresForPlatform returns the requires list for the given platform.
+// If PlatformRequires has an entry for the platform, that entry is returned.
+// Otherwise, the default Requires list is returned.
+func (d StepDefinition) RequiresForPlatform(platform string) []string {
+	if d.PlatformRequires != nil {
+		if reqs, ok := d.PlatformRequires[platform]; ok {
+			return reqs
+		}
+	}
+	return d.Requires
 }
 
 // Registry maps step names to their definitions.
