@@ -48,6 +48,7 @@ const (
 	E040 ErrorCode = "E040" // custom_steps env element invalid
 	E041 ErrorCode = "E041" // custom_steps tags element invalid
 	E042 ErrorCode = "E042" // type mismatch (expected X, got Y)
+	E043 ErrorCode = "E043" // unknown field within section
 )
 
 // WarningCode identifies a specific validation warning type.

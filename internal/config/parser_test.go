@@ -732,6 +732,324 @@ custom_steps:
 	}
 }
 
+// --- STR-02: Unknown keys within sections must produce E043 ---
+
+func TestE043_UnknownKeyInMachine(t *testing.T) {
+	input := `
+name: test
+platform: darwin
+machine:
+  hostname: my-host
+  bogus_field: value
+`
+	_, errs, _, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+	if !hasErrorCode(errs, E043) {
+		t.Error("expected E043 for unknown key in machine section")
+	}
+	found := false
+	for _, e := range errs {
+		if e.Code == E043 && strings.Contains(e.Message, "machine.bogus_field") &&
+			strings.Contains(e.Message, "valid fields are: hostname") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected E043 message mentioning machine.bogus_field; got %v", errs)
+	}
+}
+
+func TestE043_UnknownKeyInIdentity(t *testing.T) {
+	input := `
+name: test
+platform: darwin
+identity:
+  git_name: "Test"
+  favorite_color: blue
+`
+	_, errs, _, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+	if !hasErrorCode(errs, E043) {
+		t.Error("expected E043 for unknown key in identity section")
+	}
+	found := false
+	for _, e := range errs {
+		if e.Code == E043 && strings.Contains(e.Message, "identity.favorite_color") &&
+			strings.Contains(e.Message, "valid fields are: git_name, git_email, github_user") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected E043 message mentioning identity.favorite_color; got %v", errs)
+	}
+}
+
+func TestE043_UnknownKeyInSecrets(t *testing.T) {
+	input := `
+name: test
+platform: darwin
+secrets:
+  - name: MY_SECRET
+    bogus: something
+`
+	_, errs, _, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+	if !hasErrorCode(errs, E043) {
+		t.Error("expected E043 for unknown key in secrets entry")
+	}
+	found := false
+	for _, e := range errs {
+		if e.Code == E043 && strings.Contains(e.Message, "secrets[].bogus") &&
+			strings.Contains(e.Message, "valid fields are: name, description, required, sensitive, validate, prompt") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected E043 message mentioning secrets[].bogus; got %v", errs)
+	}
+}
+
+func TestE043_UnknownKeyInPackages(t *testing.T) {
+	input := `
+name: test
+platform: darwin
+packages:
+  brew:
+    - git
+  snap:
+    - something
+`
+	_, errs, _, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+	if !hasErrorCode(errs, E043) {
+		t.Error("expected E043 for unknown key in packages section")
+	}
+	found := false
+	for _, e := range errs {
+		if e.Code == E043 && strings.Contains(e.Message, "packages.snap") &&
+			strings.Contains(e.Message, "valid fields are: brew, cask, apt") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected E043 message mentioning packages.snap; got %v", errs)
+	}
+}
+
+func TestE043_UnknownKeyInPackageEntry(t *testing.T) {
+	input := `
+name: test
+platform: darwin
+packages:
+  brew:
+    - name: terraform
+      version: "1.7.5"
+      source: custom
+`
+	_, errs, _, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+	if !hasErrorCode(errs, E043) {
+		t.Error("expected E043 for unknown key in package entry")
+	}
+	found := false
+	for _, e := range errs {
+		if e.Code == E043 && strings.Contains(e.Message, "packages.brew[0].source") &&
+			strings.Contains(e.Message, "valid fields are: name, version, pinned") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected E043 message mentioning packages.brew[0].source; got %v", errs)
+	}
+}
+
+func TestE043_UnknownKeyInDock(t *testing.T) {
+	input := `
+name: test
+platform: darwin
+dock:
+  apps:
+    - /Applications/Finder.app
+  layout: grid
+`
+	_, errs, _, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+	if !hasErrorCode(errs, E043) {
+		t.Error("expected E043 for unknown key in dock section")
+	}
+	found := false
+	for _, e := range errs {
+		if e.Code == E043 && strings.Contains(e.Message, "dock.layout") &&
+			strings.Contains(e.Message, "valid fields are: apps") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected E043 message mentioning dock.layout; got %v", errs)
+	}
+}
+
+func TestE043_UnknownKeyInShell(t *testing.T) {
+	input := `
+name: test
+platform: darwin
+shell:
+  default: zsh
+  prompt: starship
+`
+	_, errs, _, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+	if !hasErrorCode(errs, E043) {
+		t.Error("expected E043 for unknown key in shell section")
+	}
+	found := false
+	for _, e := range errs {
+		if e.Code == E043 && strings.Contains(e.Message, "shell.prompt") &&
+			strings.Contains(e.Message, "valid fields are: default, oh_my_zsh, theme, plugins") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected E043 message mentioning shell.prompt; got %v", errs)
+	}
+}
+
+func TestE043_UnknownKeyInCustomStep(t *testing.T) {
+	input := `
+name: test
+platform: darwin
+custom_steps:
+  my-step:
+    description: "test step"
+    timeout: 30
+`
+	_, errs, _, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+	if !hasErrorCode(errs, E043) {
+		t.Error("expected E043 for unknown key in custom_steps entry")
+	}
+	found := false
+	for _, e := range errs {
+		if e.Code == E043 && strings.Contains(e.Message, "custom_steps.my-step.timeout") &&
+			strings.Contains(e.Message, "valid fields are: description, provides, requires, platform, check, apply, rollback, env, tags") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected E043 message mentioning custom_steps.my-step.timeout; got %v", errs)
+	}
+}
+
+func TestE043_MultipleUnknownKeysInSameSection(t *testing.T) {
+	input := `
+name: test
+platform: darwin
+shell:
+  default: zsh
+  prompt: starship
+  history_size: 10000
+`
+	_, errs, _, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+	count := 0
+	for _, e := range errs {
+		if e.Code == E043 {
+			count++
+		}
+	}
+	if count != 2 {
+		t.Errorf("expected 2 E043 errors for two unknown keys, got %d; errors: %v", count, errs)
+	}
+}
+
+func TestE043_ValidKeysProduceNoError(t *testing.T) {
+	// Ensure that known keys within each section do NOT produce E043
+	input := `
+name: test
+platform: darwin
+machine:
+  hostname: my-host
+identity:
+  git_name: "Test"
+  git_email: "test@test.com"
+  github_user: testuser
+packages:
+  brew:
+    - name: git
+      version: "2.0"
+      pinned: true
+  cask:
+    - vscode
+  apt: []
+dock:
+  apps:
+    - /Applications/Finder.app
+shell:
+  default: zsh
+  oh_my_zsh: true
+  theme: robbyrussell
+  plugins:
+    - git
+custom_steps:
+  my-step:
+    description: "test"
+    provides: [my-step]
+    requires: []
+    platform: [darwin]
+    check: "true"
+    apply:
+      darwin: "echo hi"
+    rollback:
+      darwin: "echo bye"
+    env: []
+    tags: [dev]
+secrets:
+  - name: MY_TOKEN
+    description: "token"
+    required: true
+    sensitive: false
+    validate: "test -n $MY_TOKEN"
+    prompt: false
+`
+	_, errs, _, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+	if hasErrorCode(errs, E043) {
+		for _, e := range errs {
+			if e.Code == E043 {
+				t.Errorf("unexpected E043 for valid config: %v", e)
+			}
+		}
+	}
+}
+
 // Helper functions
 
 func hasErrorCode(errs []ValidationError, code ErrorCode) bool {

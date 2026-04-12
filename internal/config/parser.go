@@ -199,8 +199,8 @@ func parseMachine(node *yaml.Node, cfg *Config, errs *[]ValidationError) {
 				cfg.Machine.Hostname = val.Value
 			}
 		default:
-			// Unknown field in machine -- silently ignored for now per spec
-			// (KnownFields handles this for struct-based decode, but we're doing node parsing)
+			*errs = append(*errs, newError(E043, "machine."+key,
+				fmt.Sprintf("machine.%s: unknown field; valid fields are: hostname", key)))
 		}
 	}
 }
@@ -229,6 +229,9 @@ func parseIdentity(node *yaml.Node, cfg *Config, errs *[]ValidationError, warns 
 			if val.Tag != "!!null" {
 				cfg.Identity.GithubUser = val.Value
 			}
+		default:
+			*errs = append(*errs, newError(E043, "identity."+key,
+				fmt.Sprintf("identity.%s: unknown field; valid fields are: git_name, git_email, github_user", key)))
 		}
 	}
 }
@@ -263,6 +266,9 @@ func parseSecrets(node *yaml.Node, cfg *Config, errs *[]ValidationError) {
 				entry.Validate = val.Value
 			case "prompt":
 				entry.Prompt = val.Value == "true"
+			default:
+				*errs = append(*errs, newError(E043, "secrets[]."+key,
+					fmt.Sprintf("secrets[].%s: unknown field; valid fields are: name, description, required, sensitive, validate, prompt", key)))
 			}
 		}
 		cfg.Secrets = append(cfg.Secrets, entry)
@@ -288,6 +294,9 @@ func parsePackages(node *yaml.Node, cfg *Config, errs *[]ValidationError) {
 			cfg.Packages.Cask = parsePackageList(val, "packages.cask", errs)
 		case "apt":
 			cfg.Packages.Apt = parsePackageList(val, "packages.apt", errs)
+		default:
+			*errs = append(*errs, newError(E043, "packages."+key,
+				fmt.Sprintf("packages.%s: unknown field; valid fields are: brew, cask, apt", key)))
 		}
 	}
 }
@@ -326,6 +335,10 @@ func parsePackageList(node *yaml.Node, path string, errs *[]ValidationError) []P
 					}
 				case "pinned":
 					entry.Pinned = valNode.Value == "true"
+				default:
+					*errs = append(*errs, newError(E043,
+						fmt.Sprintf("%s[%d].%s", path, idx, keyNode.Value),
+						fmt.Sprintf("%s[%d].%s: unknown field; valid fields are: name, version, pinned", path, idx, keyNode.Value)))
 				}
 			}
 			entries = append(entries, entry)
@@ -450,6 +463,9 @@ func parseDock(node *yaml.Node, cfg *Config, errs *[]ValidationError) {
 					cfg.Dock.Apps = append(cfg.Dock.Apps, "")
 				}
 			}
+		default:
+			*errs = append(*errs, newError(E043, "dock."+key,
+				fmt.Sprintf("dock.%s: unknown field; valid fields are: apps", key)))
 		}
 	}
 }
@@ -489,6 +505,9 @@ func parseShell(node *yaml.Node, cfg *Config, errs *[]ValidationError) {
 					cfg.Shell.Plugins = append(cfg.Shell.Plugins, "")
 				}
 			}
+		default:
+			*errs = append(*errs, newError(E043, "shell."+key,
+				fmt.Sprintf("shell.%s: unknown field; valid fields are: default, oh_my_zsh, theme, plugins", key)))
 		}
 	}
 }
@@ -568,6 +587,10 @@ func parseCustomSteps(node *yaml.Node, cfg *Config, errs *[]ValidationError) {
 					step.Env = parseStringList(val)
 				case "tags":
 					step.Tags = parseStringList(val)
+				default:
+					*errs = append(*errs, newError(E043,
+						fmt.Sprintf("custom_steps.%s.%s", name, key),
+						fmt.Sprintf("custom_steps.%s.%s: unknown field; valid fields are: description, provides, requires, platform, check, apply, rollback, env, tags", name, key)))
 				}
 			}
 		}
