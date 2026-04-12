@@ -10,85 +10,105 @@ import (
 	"github.com/gregberns/adze/internal/dag"
 	"github.com/gregberns/adze/internal/steps"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 // newDoctorCmd creates the "doctor" subcommand.
-func newDoctorCmd() *cobra.Command {
+func newDoctorCmd(version string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "Dump full context for AI agent review",
 		Long:  "Dump full context about the machine and config for AI agent review. Output is always to stdout.",
-		RunE:  runDoctor,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runDoctor(cmd, args, version)
+		},
 	}
 	return cmd
 }
 
 // runDoctor implements the doctor command.
-func runDoctor(cmd *cobra.Command, args []string) error {
+// The output follows the spec's 6 sections in order:
+//  1. Config — full resolved config as YAML
+//  2. Dependency Graph — resolved step execution order with provides/requires
+//  3. Validation Results — all errors and warnings
+//  4. Platform Information — OS, arch, shell, tool version
+//  5. Available Steps Not In Use — built-in steps not referenced by config
+//  6. Review Questions — fixed set of review prompts
+func runDoctor(cmd *cobra.Command, args []string, version string) error {
 	out := cmd.OutOrStdout()
 	gf := ResolveGlobalFlags(cmd)
 	registry := steps.NewRegistry()
 
-	// Section 1: Platform info
-	fmt.Fprintln(out, "=== Platform ===")
-	fmt.Fprintf(out, "OS:   %s\n", runtime.GOOS)
-	fmt.Fprintf(out, "Arch: %s\n", runtime.GOARCH)
-	fmt.Fprintln(out)
-
-	// Section 2: Config summary
-	fmt.Fprintln(out, "=== Config ===")
+	// Load config (needed for multiple sections).
 	configPath, configErr := ResolveConfig(gf.Config)
 	var cfg *cfgpkg.Config
 	var validationErrs []cfgpkg.ValidationError
 	var validationWarns []cfgpkg.ValidationWarning
+	var parseErr error
+	var readErr error
 
+	if configErr == nil {
+		var data []byte
+		data, readErr = os.ReadFile(configPath)
+		if readErr == nil {
+			cfg, validationErrs, validationWarns, parseErr = cfgpkg.Parse(data)
+		}
+	}
+
+	platform := currentPlatform()
+	if cfg != nil && cfg.Platform != "" && cfg.Platform != "any" {
+		platform = cfg.Platform
+	}
+
+	// Section 1: Config
+	fmt.Fprintln(out, "=== Config ===")
 	if configErr != nil {
 		fmt.Fprintf(out, "Config: not found (%s)\n", configErr)
-	} else {
-		fmt.Fprintf(out, "File:   %s\n", configPath)
-		data, readErr := os.ReadFile(configPath)
-		if readErr != nil {
-			fmt.Fprintf(out, "Read:   error (%s)\n", readErr)
+	} else if readErr != nil {
+		fmt.Fprintf(out, "Config: not found (%s)\n", readErr)
+	} else if parseErr != nil {
+		fmt.Fprintf(out, "Config: YAML syntax error (%s)\n", parseErr)
+	} else if cfg != nil {
+		yamlBytes, marshalErr := yaml.Marshal(cfg)
+		if marshalErr != nil {
+			fmt.Fprintf(out, "Config: marshal error (%s)\n", marshalErr)
 		} else {
-			var parseErr error
-			cfg, validationErrs, validationWarns, parseErr = cfgpkg.Parse(data)
-			if parseErr != nil {
-				fmt.Fprintf(out, "Parse:  YAML syntax error (%s)\n", parseErr)
-			} else {
-				fmt.Fprintf(out, "Parse:  OK\n")
-				fmt.Fprintf(out, "Errors: %d\n", len(validationErrs))
-				fmt.Fprintf(out, "Warns:  %d\n", len(validationWarns))
-			}
+			fmt.Fprintf(out, "%s", string(yamlBytes))
 		}
 	}
 	fmt.Fprintln(out)
 
-	// Section 3: Dependency graph
+	// Section 2: Dependency Graph
 	fmt.Fprintln(out, "=== Dependency Graph ===")
 	if cfg != nil {
-		platform := cfg.Platform
-		if platform == "any" {
-			platform = currentPlatform()
-		}
-
 		stepInputs := buildStepInputs(registry, cfg, platform)
 		resolved, dagErrs := dag.Resolve(stepInputs, platform, buildKnownBuiltIn(registry))
 		if len(dagErrs) > 0 {
-			fmt.Fprintf(out, "Status: errors (%d)\n", len(dagErrs))
+			fmt.Fprintf(out, "Errors (%d):\n", len(dagErrs))
 			for _, e := range dagErrs {
 				fmt.Fprintf(out, "  - %s\n", e)
 			}
 		} else {
-			fmt.Fprintf(out, "Steps:  %d\n", len(resolved.Steps))
-			fmt.Fprintf(out, "Cycles: none\n")
+			for i, s := range resolved.Steps {
+				provides := "—"
+				if len(s.Config.Provides) > 0 {
+					provides = strings.Join(s.Config.Provides, ", ")
+				}
+				requires := "—"
+				if len(s.Config.Requires) > 0 {
+					requires = strings.Join(s.Config.Requires, ", ")
+				}
+				fmt.Fprintf(out, "%d. %s [provides: %s] [requires: %s]\n",
+					i+1, s.Name, provides, requires)
+			}
 		}
 	} else {
-		fmt.Fprintln(out, "Status: no config loaded")
+		fmt.Fprintln(out, "No config loaded.")
 	}
 	fmt.Fprintln(out)
 
-	// Section 4: Validation results
-	fmt.Fprintln(out, "=== Validation ===")
+	// Section 3: Validation Results
+	fmt.Fprintln(out, "=== Validation Results ===")
 	if len(validationErrs) == 0 && len(validationWarns) == 0 {
 		fmt.Fprintln(out, "No errors or warnings.")
 	} else {
@@ -101,30 +121,22 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Fprintln(out)
 
-	// Section 5: Step inventory
-	fmt.Fprintln(out, "=== Step Inventory ===")
-	allSteps := registry.All()
-	fmt.Fprintf(out, "Built-in steps: %d\n", len(allSteps))
-	platform := currentPlatform()
-	if cfg != nil && cfg.Platform != "" && cfg.Platform != "any" {
-		platform = cfg.Platform
-	}
-	matching := registry.ForPlatform(platform)
-	fmt.Fprintf(out, "Platform match (%s): %d\n", platform, len(matching))
-	for _, s := range matching {
-		fmt.Fprintf(out, "  %-25s %s\n", s.Name, s.Description)
-	}
+	// Section 4: Platform Information
+	fmt.Fprintln(out, "=== Platform Information ===")
+	fmt.Fprintf(out, "OS: %s (%s)\n", runtime.GOOS, runtime.GOARCH)
+	fmt.Fprintf(out, "Shell: %s\n", os.Getenv("SHELL"))
+	fmt.Fprintf(out, "Tool version: %s\n", version)
 	fmt.Fprintln(out)
 
-	// Section 6: Unused steps
-	fmt.Fprintln(out, "=== Unused Steps ===")
+	// Section 5: Available Steps Not In Use
+	fmt.Fprintln(out, "=== Available Steps Not In Use ===")
 	if cfg != nil {
 		unused := findUnusedSteps(registry, cfg, platform)
 		if len(unused) == 0 {
 			fmt.Fprintln(out, "None.")
 		} else {
-			for _, name := range unused {
-				fmt.Fprintf(out, "  - %s\n", name)
+			for _, entry := range unused {
+				fmt.Fprintf(out, "  %s\n", entry)
 			}
 		}
 	} else {
@@ -132,29 +144,9 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Fprintln(out)
 
-	// Section 7: Pre-flight status
-	fmt.Fprintln(out, "=== Pre-flight ===")
-	if cfg != nil && len(cfg.Secrets) > 0 {
-		for _, s := range cfg.Secrets {
-			val := os.Getenv(s.Name)
-			status := "SET"
-			if val == "" {
-				if s.Required {
-					status = "MISSING (required)"
-				} else {
-					status = "MISSING (optional)"
-				}
-			}
-			fmt.Fprintf(out, "  %-30s %s\n", s.Name, status)
-		}
-	} else {
-		fmt.Fprintln(out, "No secrets declared.")
-	}
-	fmt.Fprintln(out)
-
-	// Section 8: Review questions
+	// Section 6: Review Questions
 	fmt.Fprintln(out, "=== Review Questions ===")
-	questions := generateReviewQuestions(cfg, validationErrs, configErr)
+	questions := fixedReviewQuestions()
 	for i, q := range questions {
 		fmt.Fprintf(out, "%d. %s\n", i+1, q)
 	}
@@ -204,37 +196,63 @@ func buildKnownBuiltIn(registry *steps.Registry) dag.KnownBuiltIn {
 	return known
 }
 
-// findUnusedSteps returns step names that are in the config but not applicable
-// to the current platform.
+// findUnusedSteps returns built-in steps available for the current platform that
+// are not referenced by the config. Output format matches the spec:
+//
+//	step-name — Description [platforms]
 func findUnusedSteps(registry *steps.Registry, cfg *cfgpkg.Config, platform string) []string {
-	var unused []string
-
-	// Check custom steps whose platform doesn't match
-	for name, cs := range cfg.CustomSteps {
-		matches := false
-		for _, p := range cs.Platform {
-			if p == "any" || p == platform {
-				matches = true
-				break
-			}
-		}
-		if !matches {
-			unused = append(unused, name+" (custom)")
-		}
+	// Collect step names referenced in the config (custom steps + any built-in steps
+	// that have a matching config section with content).
+	referenced := make(map[string]bool)
+	for name := range cfg.CustomSteps {
+		referenced[name] = true
 	}
 
-	// Check built-in steps that exist but don't match the platform
-	allSteps := registry.All()
-	for _, def := range allSteps {
-		if !platformMatchesAny(def.Platforms, platform) {
-			// Only report if the step has a config section that might be referenced
-			if def.ConfigSection != "" {
-				unused = append(unused, def.Name+" (built-in, "+strings.Join(def.Platforms, "/")+"-only)")
-			}
+	// A built-in step is "in use" if it has a config section and that section
+	// has content, OR if it has no config section (always runs).
+	matching := registry.ForPlatform(platform)
+	var unused []string
+	for _, def := range matching {
+		if def.ConfigSection == "" {
+			// Steps without a config section always run — they are "in use".
+			continue
 		}
+		if hasConfigContent(cfg, def.ConfigSection) {
+			continue
+		}
+		platStr := strings.Join(def.Platforms, ", ")
+		unused = append(unused, fmt.Sprintf("%s \u2014 %s [%s]", def.Name, def.Description, platStr))
 	}
 
 	return unused
+}
+
+// hasConfigContent checks whether the given config section has any content.
+func hasConfigContent(cfg *cfgpkg.Config, section string) bool {
+	switch section {
+	case "packages.brew":
+		return len(cfg.Packages.Brew) > 0
+	case "packages.cask":
+		return len(cfg.Packages.Cask) > 0
+	case "packages.apt":
+		return len(cfg.Packages.Apt) > 0
+	case "defaults":
+		return len(cfg.Defaults) > 0
+	case "dock":
+		return len(cfg.Dock.Apps) > 0
+	case "shell":
+		return cfg.Shell.Default != "" || cfg.Shell.Theme != "" || len(cfg.Shell.Plugins) > 0
+	case "shell.plugins":
+		return len(cfg.Shell.Plugins) > 0
+	case "directories":
+		return len(cfg.Directories) > 0
+	case "identity":
+		return cfg.Identity.GitName != "" || cfg.Identity.GitEmail != ""
+	case "machine":
+		return cfg.Machine.Hostname != ""
+	default:
+		return false
+	}
 }
 
 // platformMatchesAny checks if any platform in the list matches.
@@ -247,37 +265,14 @@ func platformMatchesAny(platforms []string, platform string) bool {
 	return false
 }
 
-// generateReviewQuestions produces suggested review areas based on the diagnostic results.
-func generateReviewQuestions(cfg *cfgpkg.Config, errs []cfgpkg.ValidationError, configErr error) []string {
-	var questions []string
-
-	if configErr != nil {
-		questions = append(questions, "No config file found. Run 'adze init' to create one.")
-		return questions
+// fixedReviewQuestions returns the fixed set of review prompts from the spec.
+func fixedReviewQuestions() []string {
+	return []string{
+		"Are custom step dependencies declared correctly?",
+		"Are there built-in steps that should replace custom steps?",
+		"For platform-specific steps, suggest cross-platform equivalents.",
+		"Review defaults settings for current OS version compatibility.",
+		"Identify common tools/configs that might be missing.",
+		"Check for deprecated packages or formulas.",
 	}
-
-	if len(errs) > 0 {
-		questions = append(questions, fmt.Sprintf("There are %d validation errors. Fix these before running apply.", len(errs)))
-	}
-
-	if cfg != nil {
-		if cfg.Identity.GitName == "" || cfg.Identity.GitEmail == "" {
-			questions = append(questions, "Git identity is incomplete. Consider adding git_name and git_email to the identity section.")
-		}
-		if len(cfg.Packages.Brew) == 0 && len(cfg.Packages.Cask) == 0 && len(cfg.Packages.Apt) == 0 {
-			questions = append(questions, "No packages declared. Run 'adze init' to detect installed packages.")
-		}
-		if len(cfg.Secrets) > 0 {
-			questions = append(questions, "Review secret declarations and ensure required environment variables are available.")
-		}
-		if len(cfg.CustomSteps) > 0 {
-			questions = append(questions, "Custom steps defined. Verify their check and apply commands are correct.")
-		}
-	}
-
-	if len(questions) == 0 {
-		questions = append(questions, "Config looks good. Run 'adze plan' to preview changes.")
-	}
-
-	return questions
 }

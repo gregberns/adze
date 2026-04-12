@@ -32,7 +32,7 @@ between config and machine state.`,
 	rootCmd.AddCommand(newValidateCmdImpl())
 	rootCmd.AddCommand(newGraphCmdImpl())
 	rootCmd.AddCommand(newRenderCmdImpl())
-	rootCmd.AddCommand(newDoctorCmd())
+	rootCmd.AddCommand(newDoctorCmd(version))
 	rootCmd.AddCommand(newStepCmd())
 
 	return rootCmd
