@@ -86,7 +86,10 @@ func registerAll(r *Registry) {
 		Type:        "atomic",
 		Platforms:   []string{"darwin", "ubuntu"},
 		Provides:    []string{"node", "fnm"},
-		Requires:    []string{"homebrew"}, // ubuntu requires apt-essentials, but DAG resolves per platform
+		PlatformRequires: map[string][]string{
+			"darwin": {"homebrew"},
+			"ubuntu": {"apt-essentials"},
+		},
 		Constructor: func() step.Step { return NewNodeFnmStep() },
 	})
 
@@ -97,7 +100,10 @@ func registerAll(r *Registry) {
 		Type:        "atomic",
 		Platforms:   []string{"darwin", "ubuntu"},
 		Provides:    []string{"python"},
-		Requires:    []string{"homebrew"},
+		PlatformRequires: map[string][]string{
+			"darwin": {"homebrew"},
+			"ubuntu": {"apt-essentials"},
+		},
 		Constructor: func() step.Step { return NewPythonStep() },
 	})
 
@@ -108,7 +114,10 @@ func registerAll(r *Registry) {
 		Type:        "atomic",
 		Platforms:   []string{"darwin", "ubuntu"},
 		Provides:    []string{"go"},
-		Requires:    []string{"homebrew"},
+		PlatformRequires: map[string][]string{
+			"darwin": {"homebrew"},
+			"ubuntu": {"apt-essentials"},
+		},
 		Constructor: func() step.Step { return NewGoStep() },
 	})
 

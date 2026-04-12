@@ -545,3 +545,92 @@ func contains(ss []string, s string) bool {
 	}
 	return false
 }
+
+// TestCrossPlatformRequires verifies that steps with platform-conditional
+// requires resolve correctly on both darwin and ubuntu. This is the pattern
+// used by node-fnm, python, go steps which require homebrew on darwin
+// but apt-essentials on ubuntu.
+func TestCrossPlatformRequires_Darwin(t *testing.T) {
+	steps := []StepInput{
+		{Name: "xcode-cli-tools", Provides: []string{"xcode-cli-tools"}, Platforms: []string{"darwin"}},
+		{Name: "homebrew", Provides: []string{"homebrew"}, Requires: []string{"xcode-cli-tools"}, Platforms: []string{"darwin"}},
+		{Name: "apt-essentials", Provides: []string{"apt-essentials"}, Platforms: []string{"ubuntu"}},
+		// On darwin, node-fnm requires homebrew
+		{Name: "node-fnm", Provides: []string{"node", "fnm"}, Requires: []string{"homebrew"}, Platforms: []string{"darwin", "ubuntu"}},
+	}
+
+	g, errs := Resolve(steps, "darwin", nil)
+	if len(errs) > 0 {
+		t.Fatalf("unexpected errors on darwin: %v", errs)
+	}
+
+	// Should have xcode-cli-tools, homebrew, node-fnm (apt-essentials filtered out)
+	if len(g.Steps) != 3 {
+		t.Fatalf("expected 3 steps on darwin, got %d: %v", len(g.Steps), stepNames(g))
+	}
+
+	assertOrder(t, g, "xcode-cli-tools", "homebrew")
+	assertOrder(t, g, "homebrew", "node-fnm")
+
+	nodeFnm := findStep(g, "node-fnm")
+	if nodeFnm == nil {
+		t.Fatal("node-fnm not found")
+	}
+	if nodeFnm.DependsOn["homebrew"] != "homebrew" {
+		t.Errorf("node-fnm DependsOn[homebrew] = %q, want %q", nodeFnm.DependsOn["homebrew"], "homebrew")
+	}
+}
+
+func TestCrossPlatformRequires_Ubuntu(t *testing.T) {
+	steps := []StepInput{
+		{Name: "xcode-cli-tools", Provides: []string{"xcode-cli-tools"}, Platforms: []string{"darwin"}},
+		{Name: "homebrew", Provides: []string{"homebrew"}, Requires: []string{"xcode-cli-tools"}, Platforms: []string{"darwin"}},
+		{Name: "apt-essentials", Provides: []string{"apt-essentials"}, Platforms: []string{"ubuntu"}},
+		// On ubuntu, node-fnm requires apt-essentials
+		{Name: "node-fnm", Provides: []string{"node", "fnm"}, Requires: []string{"apt-essentials"}, Platforms: []string{"darwin", "ubuntu"}},
+	}
+
+	g, errs := Resolve(steps, "ubuntu", nil)
+	if len(errs) > 0 {
+		t.Fatalf("unexpected errors on ubuntu: %v", errs)
+	}
+
+	// Should have apt-essentials, node-fnm (xcode-cli-tools and homebrew filtered out)
+	if len(g.Steps) != 2 {
+		t.Fatalf("expected 2 steps on ubuntu, got %d: %v", len(g.Steps), stepNames(g))
+	}
+
+	assertOrder(t, g, "apt-essentials", "node-fnm")
+
+	nodeFnm := findStep(g, "node-fnm")
+	if nodeFnm == nil {
+		t.Fatal("node-fnm not found")
+	}
+	if nodeFnm.DependsOn["apt-essentials"] != "apt-essentials" {
+		t.Errorf("node-fnm DependsOn[apt-essentials] = %q, want %q", nodeFnm.DependsOn["apt-essentials"], "apt-essentials")
+	}
+}
+
+// TestCrossPlatformRequires_UbuntuFailsWithHomebrew verifies that if a step
+// requires "homebrew" on ubuntu (the bug scenario), DAG resolution fails.
+func TestCrossPlatformRequires_UbuntuFailsWithHomebrew(t *testing.T) {
+	steps := []StepInput{
+		{Name: "homebrew", Provides: []string{"homebrew"}, Platforms: []string{"darwin"}},
+		{Name: "apt-essentials", Provides: []string{"apt-essentials"}, Platforms: []string{"ubuntu"}},
+		// Bug: node-fnm requires homebrew even on ubuntu
+		{Name: "node-fnm", Provides: []string{"node"}, Requires: []string{"homebrew"}, Platforms: []string{"darwin", "ubuntu"}},
+	}
+
+	g, errs := Resolve(steps, "ubuntu", nil)
+	if g != nil {
+		t.Fatalf("expected nil graph on ubuntu with homebrew requirement, got %+v", g)
+	}
+	if len(errs) == 0 {
+		t.Fatal("expected error for unresolvable homebrew dependency on ubuntu")
+	}
+
+	errStr := errs[0].Error()
+	if !strings.Contains(errStr, "homebrew") {
+		t.Errorf("expected error mentioning homebrew, got: %s", errStr)
+	}
+}

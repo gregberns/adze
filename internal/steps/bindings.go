@@ -48,7 +48,7 @@ func buildStepConfig(cfg *config.Config, platform string, def StepDefinition) *s
 		Name:         def.Name,
 		Description:  def.Description,
 		Provides:     def.Provides,
-		Requires:     def.Requires,
+		Requires:     def.RequiresForPlatform(platform),
 		Platforms:    def.Platforms,
 		CheckTimeout: 5 * time.Minute,
 		ApplyTimeout: 15 * time.Minute,

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/gregberns/adze/internal/steps"
@@ -167,6 +168,13 @@ func runStepInfo(cmd *cobra.Command, args []string) error {
 
 	if len(def.Requires) > 0 {
 		fmt.Fprintf(out, "Requires:      %s\n", strings.Join(def.Requires, ", "))
+	} else if len(def.PlatformRequires) > 0 {
+		var parts []string
+		for plat, reqs := range def.PlatformRequires {
+			parts = append(parts, fmt.Sprintf("%s (%s)", strings.Join(reqs, ", "), plat))
+		}
+		sort.Strings(parts)
+		fmt.Fprintf(out, "Requires:      %s\n", strings.Join(parts, "; "))
 	} else {
 		fmt.Fprintf(out, "Requires:      (none)\n")
 	}
