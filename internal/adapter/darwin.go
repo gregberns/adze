@@ -217,15 +217,17 @@ func (d *DarwinAdapter) PackageList() ([]InstalledPackage, error) {
 }
 
 // DefaultsRead reads a macOS defaults preference value.
+// stderr is redirected to /dev/null because `defaults read` emits warnings
+// (e.g., for missing keys) that pollute CombinedOutput.
 func (d *DarwinAdapter) DefaultsRead(domain, key string) (DefaultsValue, error) {
-	// Read the value (stderr suppressed in production via the runner).
-	rawValue, err := d.run("defaults", "read", domain, key)
+	// Read the value with stderr suppressed.
+	rawValue, err := d.run("sh", "-c", fmt.Sprintf("defaults read %s %s 2>/dev/null", domain, key))
 	if err != nil {
 		return DefaultsValue{}, fmt.Errorf("defaults read %s %s: key does not exist", domain, key)
 	}
 
-	// Read the type.
-	rawType, err := d.run("defaults", "read-type", domain, key)
+	// Read the type with stderr suppressed.
+	rawType, err := d.run("sh", "-c", fmt.Sprintf("defaults read-type %s %s 2>/dev/null", domain, key))
 	if err != nil {
 		return DefaultsValue{}, fmt.Errorf("defaults read-type %s %s failed: %w", domain, key, err)
 	}

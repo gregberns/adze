@@ -22,14 +22,14 @@ func (s *BrewPackagesStep) Name() string { return "brew-packages" }
 
 func (s *BrewPackagesStep) Check(ctx context.Context, cfg step.StepConfig) (step.StepResult, error) {
 	return batchCheck(ctx, s.run, cfg, s.Name(), func(item step.StepItem) string {
-		return fmt.Sprintf("brew list %s", item.Name)
+		return fmt.Sprintf("brew list --formula %s", item.Name)
 	})
 }
 
 func (s *BrewPackagesStep) Apply(ctx context.Context, cfg step.StepConfig) (step.StepResult, error) {
 	return batchApply(ctx, s.run, cfg, s.Name(),
 		func(item step.StepItem) string {
-			return fmt.Sprintf("brew list %s", item.Name)
+			return fmt.Sprintf("brew list --formula %s", item.Name)
 		},
 		func(item step.StepItem) string {
 			if item.Version != "" {

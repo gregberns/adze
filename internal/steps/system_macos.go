@@ -55,14 +55,31 @@ func (s *MacOSDefaultsStep) Apply(ctx context.Context, cfg step.StepConfig) (ste
 		return result, err
 	}
 
-	// After writing defaults, restart affected processes.
-	// This is best-effort — we don't fail the step if killall fails.
-	for _, proc := range []string{"Dock", "Finder", "SystemUIServer"} {
+	// After writing defaults, restart only the processes whose domains were changed.
+	// This avoids unnecessary restarts (e.g., don't restart Dock when only Finder prefs changed).
+	restartNeeded := make(map[string]bool)
+	for _, ir := range result.ItemResults {
+		if ir.Status == step.StatusApplied {
+			domain := strings.SplitN(ir.Item.Name, " ", 2)[0]
+			if proc, ok := domainProcessMap[domain]; ok {
+				restartNeeded[proc] = true
+			}
+		}
+	}
+	for proc := range restartNeeded {
 		cmd := shellCmd(fmt.Sprintf("killall %s 2>/dev/null || true", proc))
 		_, _ = s.run(ctx, cmd, cfg.Env, s.Name(), "restart")
 	}
 
 	return result, nil
+}
+
+// domainProcessMap maps macOS preference domains to the processes that must be
+// restarted after a defaults write. Domains not listed here require no restart.
+var domainProcessMap = map[string]string{
+	"com.apple.dock":           "Dock",
+	"com.apple.finder":         "Finder",
+	"com.apple.SystemUIServer": "SystemUIServer",
 }
 
 // --- dock-layout ---
