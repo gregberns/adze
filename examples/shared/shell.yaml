@@ -1,0 +1,11 @@
+name: shared-shell
+platform: any
+
+shell:
+  default: zsh
+  oh_my_zsh: true
+  theme: robbyrussell
+  plugins:
+    - git
+    - zsh-syntax-highlighting
+    - zsh-autosuggestions

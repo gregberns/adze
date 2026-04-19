@@ -1,0 +1,93 @@
+name: "Ubuntu Dev Box"
+platform: ubuntu
+
+include:
+  - shared/identity.yaml
+  - shared/shell.yaml
+  - shared/dev-tools.yaml
+
+secrets:
+  - name: NPM_TOKEN
+    description: "npm registry auth token"
+    required: false
+    sensitive: true
+
+packages:
+  apt:
+    - build-essential
+    - git
+    - curl
+    - wget
+    - jq
+    - ripgrep
+    - fd-find
+    - bat
+    - neovim
+    - tmux
+    - htop
+    - gnupg
+    - unzip
+    - zsh
+    - name: python3
+    - name: python3-pip
+    - name: golang-go
+
+directories:
+  - ~/github
+  - ~/projects
+  - ~/.config/nvim
+  - ~/.local/bin
+
+shell:
+  default: zsh
+  oh_my_zsh: true
+  plugins:
+    - git
+    - zsh-syntax-highlighting
+    - zsh-autosuggestions
+    - docker
+
+custom_steps:
+  install-docker:
+    description: "Install Docker Engine"
+    provides: [docker]
+    requires: [apt-essentials]
+    platform: [ubuntu]
+    check: "command -v docker"
+    apply:
+      ubuntu: |
+        curl -fsSL https://get.docker.com | sh
+        sudo usermod -aG docker $USER
+    env: []
+    tags: [infra]
+
+  install-gh-cli:
+    description: "Install GitHub CLI"
+    provides: [gh-cli]
+    requires: [apt-essentials]
+    platform: [ubuntu]
+    check: "command -v gh"
+    apply:
+      ubuntu: |
+        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+        sudo apt update && sudo apt install -y gh
+    env: []
+    tags: [dev]
+
+  configure-ssh:
+    description: "Configure SSH agent"
+    provides: [ssh-configured]
+    requires: []
+    platform: [ubuntu]
+    check: "grep -q 'AddKeysToAgent' ~/.ssh/config 2>/dev/null"
+    apply:
+      ubuntu: |
+        mkdir -p ~/.ssh && chmod 700 ~/.ssh
+        cat >> ~/.ssh/config <<'SSHEOF'
+        Host *
+          AddKeysToAgent yes
+          IdentityFile ~/.ssh/id_ed25519
+        SSHEOF
+    env: []
+    tags: [ssh]

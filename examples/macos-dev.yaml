@@ -1,0 +1,109 @@
+name: "macOS Dev Box"
+platform: darwin
+
+include:
+  - shared/identity.yaml
+  - shared/shell.yaml
+  - shared/dev-tools.yaml
+
+machine:
+  hostname: my-macbook
+
+secrets:
+  - name: NPM_TOKEN
+    description: "npm registry auth token"
+    required: false
+    sensitive: true
+
+packages:
+  brew:
+    - git
+    - jq
+    - ripgrep
+    - fzf
+    - bat
+    - fd
+    - eza
+    - neovim
+    - tmux
+    - htop
+    - curl
+    - wget
+    - gnupg
+    - gh
+    - go
+    - fnm
+    - python
+    - name: terraform
+      version: "1"
+      pinned: true
+  cask:
+    - iterm2
+    - visual-studio-code
+    - google-chrome
+    - firefox
+    - docker
+    - slack
+    - rectangle
+    - 1password
+    - obsidian
+
+defaults:
+  NSGlobalDomain:
+    AppleShowAllExtensions: true
+    NSDocumentSaveNewDocumentsToCloud: false
+    NSAutomaticQuoteSubstitutionEnabled: false
+    NSAutomaticDashSubstitutionEnabled: false
+    AppleKeyboardUIMode: 3
+    KeyRepeat: 2
+    InitialKeyRepeat: 15
+  com.apple.dock:
+    autohide: true
+    autohide-delay: 0
+    tilesize: 36
+    mru-spaces: false
+    show-recents: false
+  com.apple.finder:
+    AppleShowAllFiles: true
+    FXPreferredViewStyle: Nlsv
+    ShowPathbar: true
+    ShowStatusBar: true
+    FXDefaultSearchScope: SCcf
+  com.apple.screencapture:
+    location: "~/Screenshots"
+    type: png
+    disable-shadow: true
+
+dock:
+  apps:
+    - /Applications/Google Chrome.app
+    - /Applications/Visual Studio Code.app
+    - /Applications/iTerm.app
+    - /Applications/Slack.app
+    - /Applications/Obsidian.app
+
+directories:
+  - ~/Screenshots
+  - ~/github
+  - ~/projects
+  - ~/.config/nvim
+  - ~/.local/bin
+
+custom_steps:
+  configure-ssh:
+    description: "Configure SSH agent for macOS keychain"
+    provides: [ssh-configured]
+    requires: []
+    platform: [darwin]
+    check: "grep -q 'AddKeysToAgent' ~/.ssh/config 2>/dev/null"
+    apply:
+      darwin: |
+        mkdir -p ~/.ssh && chmod 700 ~/.ssh
+        cat >> ~/.ssh/config <<'SSHEOF'
+        Host *
+          AddKeysToAgent yes
+          UseKeychain yes
+          IdentityFile ~/.ssh/id_ed25519
+        SSHEOF
+    env: []
+    tags: [ssh]

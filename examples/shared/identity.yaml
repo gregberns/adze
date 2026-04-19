@@ -1,0 +1,14 @@
+name: shared-identity
+platform: any
+
+identity:
+  git_name: "Your Name"
+  git_email: "you@example.com"
+  github_user: your-github-user
+
+secrets:
+  - name: GITHUB_TOKEN
+    description: "GitHub personal access token"
+    required: true
+    sensitive: true
+    validate: "gh auth status"

@@ -1,0 +1,7 @@
+name: shared-dev-tools
+platform: any
+
+directories:
+  - ~/github
+  - ~/projects
+  - ~/.config
