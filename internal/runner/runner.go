@@ -63,6 +63,13 @@ func NewRunner(steps []step.Step, graph *dag.ResolvedGraph, secrets *secrets.Sec
 	}
 }
 
+// SetStepConfigs provides full StepConfig overrides keyed by step name.
+// When set, the runner uses these configs (with Check/Apply commands, Items,
+// timeouts, etc.) instead of deriving minimal configs from the DAG.
+func (r *Runner) SetStepConfigs(configs map[string]step.StepConfig) {
+	r.stepConfigs = configs
+}
+
 // Run executes all steps in DAG order and returns the aggregate result.
 func (r *Runner) Run(ctx context.Context) *RunResult {
 	// Build step lookup by name.

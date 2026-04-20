@@ -151,6 +151,13 @@ func runApply(cmd *cobra.Command, args []string) error {
 	stepImpls := buildStepImplsForGraph(reg, graph)
 	r := runner.NewRunner(stepImpls, graph, sm, platform)
 
+	// Wire step configs so the runner has Check/Apply commands, Items, timeouts, etc.
+	configMap := make(map[string]step.StepConfig, len(stepConfigs))
+	for _, sc := range stepConfigs {
+		configMap[sc.Name] = sc
+	}
+	r.SetStepConfigs(configMap)
+
 	// 9. Execute with progress display
 	if jsonMode {
 		return applyWithJSON(ctx, w, r, graph)
