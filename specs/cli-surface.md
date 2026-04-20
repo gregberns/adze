@@ -62,7 +62,7 @@ Execute the plan. Pre-flight validation runs first.
 
 - `--yes`: non-interactive mode (skip secret prompts, assume yes to confirmations)
 - `--config <url>`: accepts a URL (see Bootstrap spec)
-- Progress UI: see Output section
+- Progress UI: output MUST be streamed incrementally during execution per the Streaming Behavior rules in the Output Modes section. The Runner callback interface (see Resume/Recovery spec) drives all progress display.
 - Exit codes: 0 (success), 1 (unexpected), 2 (config error), 3 (pre-flight fail), 4 (all failed), 5 (partial success)
 
 ### status
@@ -305,6 +305,58 @@ Parent directories are NOT searched.
 Query commands (`plan`, `status`, `validate`, `capture`, `step list`, `graph`): single JSON object at end.
 
 Long-running commands (`apply`, `upgrade`): NDJSON (one event object per line). Each event has a `type` field. The stream ends with a `summary` event.
+
+Pretty-printed when stdout is a TTY; compact when piped.
+
+### Streaming Behavior for Long-Running Commands
+
+Commands that execute steps (`apply`, `upgrade`) MUST emit output incrementally as steps execute, not buffer output until execution completes.
+
+The Runner provides step lifecycle events via a callback interface (defined in the Resume/Recovery spec). The CLI layer MUST consume these events and map them to the active output mode:
+
+**Human (interactive TTY):**
+- On step start: display `[N/M] step-name` with a spinner animation.
+- On step complete: stop the spinner, replace the in-progress line with the final status line: `symbol [N/M] step-name [reason] [duration]`.
+  - Symbol: success (green check), failure (red X), skip (yellow dash), warning (yellow triangle).
+  - Reason: MUST be shown only for skipped or failed steps.
+  - Duration: MUST be shown only when the step took longer than 2 seconds, formatted as `(Xs)` or `(Xm Ys)`.
+
+**Human (non-interactive / piped):**
+- On step start: no output. There MUST be no spinner and no partial lines.
+- On step complete: emit one line with the same information as TTY mode but without color. Symbols MUST be replaced by text equivalents.
+
+**JSON (NDJSON):**
+- On step start: emit a `step_start` event (see NDJSON Event Schema).
+- On step complete: emit a `step_complete` event (see NDJSON Event Schema).
+- After all steps: emit a `summary` event (see NDJSON Event Schema).
+- Each event MUST be one line. Events MUST be flushed to stdout immediately, not buffered.
+
+### NDJSON Event Schema
+
+NDJSON streams for `apply` and `upgrade` MUST emit the following event types:
+
+| Type | Fields | When |
+|------|--------|------|
+| `step_start` | `step`, `index`, `total` | Before each step begins |
+| `step_complete` | `step`, `status`, `reason` (if skipped/failed), `duration` (if >0) | After each step finishes |
+| `summary` | `total`, `applied`, `satisfied`, `failed`, `skipped`, `exit_code` | After all steps complete |
+
+The `status` field in `step_complete` MUST use one of the following values: `applied`, `satisfied`, `failed`, `partial`, `skipped`, `verify_failed`.
+
+Example `step_start` event:
+```json
+{"type":"step_start","step":"homebrew","index":1,"total":12}
+```
+
+Example `step_complete` event:
+```json
+{"type":"step_complete","step":"homebrew","status":"applied","duration":"3.2s"}
+```
+
+Example `summary` event:
+```json
+{"type":"summary","total":12,"applied":8,"satisfied":3,"failed":0,"skipped":1,"exit_code":0}
+```
 
 Pretty-printed when stdout is a TTY; compact when piped.
 
