@@ -7,3 +7,4 @@
 # kerf internal state (project-identifier is committed separately)
 .kerf/
 !.kerf/project-identifier
+.claude/worktrees/
