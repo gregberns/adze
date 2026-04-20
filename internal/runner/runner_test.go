@@ -998,6 +998,208 @@ func TestRunMultipleIndependentSteps(t *testing.T) {
 	}
 }
 
+// --- Callback interface tests ---
+
+func TestCallbacksFireInOrder(t *testing.T) {
+	checkCount := map[string]int{}
+	sc := newScenario()
+	sc.addStep("step-a", []string{"cap-a"}, nil,
+		func(ctx context.Context, cfg step.StepConfig) (step.StepResult, error) {
+			checkCount[cfg.Name]++
+			if checkCount[cfg.Name] == 1 {
+				return step.StepResult{Status: step.StatusFailed, Reason: "not installed"}, nil
+			}
+			return step.StepResult{Status: step.StatusSatisfied}, nil
+		},
+		func(ctx context.Context, cfg step.StepConfig) (step.StepResult, error) {
+			return step.StepResult{Status: step.StatusApplied}, nil
+		},
+	)
+	sc.addStep("step-b", nil, nil,
+		func(ctx context.Context, cfg step.StepConfig) (step.StepResult, error) {
+			return step.StepResult{Status: step.StatusSatisfied}, nil
+		},
+		nil,
+	)
+	sc.addStep("step-c", nil, nil,
+		func(ctx context.Context, cfg step.StepConfig) (step.StepResult, error) {
+			checkCount[cfg.Name]++
+			if checkCount[cfg.Name] == 1 {
+				return step.StepResult{Status: step.StatusFailed, Reason: "not done"}, nil
+			}
+			return step.StepResult{Status: step.StatusSatisfied}, nil
+		},
+		func(ctx context.Context, cfg step.StepConfig) (step.StepResult, error) {
+			return step.StepResult{Status: step.StatusApplied}, nil
+		},
+	)
+
+	r := sc.build()
+
+	type callbackEvent struct {
+		kind  string // "start" or "complete"
+		name  string
+		index int
+		total int
+	}
+	var events []callbackEvent
+
+	r.OnStepStart = func(stepName string, index int, total int) {
+		events = append(events, callbackEvent{"start", stepName, index, total})
+	}
+	r.OnStepComplete = func(stepName string, index int, total int, result step.StepResult) {
+		events = append(events, callbackEvent{"complete", stepName, index, total})
+	}
+
+	r.Run(context.Background())
+
+	// Expect 6 events: start/complete for each of 3 steps, in order.
+	if len(events) != 6 {
+		t.Fatalf("expected 6 callback events, got %d", len(events))
+	}
+
+	expected := []callbackEvent{
+		{"start", "step-a", 1, 3},
+		{"complete", "step-a", 1, 3},
+		{"start", "step-b", 2, 3},
+		{"complete", "step-b", 2, 3},
+		{"start", "step-c", 3, 3},
+		{"complete", "step-c", 3, 3},
+	}
+
+	for i, ev := range events {
+		if ev != expected[i] {
+			t.Errorf("event %d: expected %+v, got %+v", i, expected[i], ev)
+		}
+	}
+}
+
+func TestCallbacksFireForSkippedSteps(t *testing.T) {
+	sc := newScenario()
+	// step-a fails, provides cap-a
+	sc.addStep("step-a", []string{"cap-a"}, nil,
+		func(ctx context.Context, cfg step.StepConfig) (step.StepResult, error) {
+			return step.StepResult{Status: step.StatusFailed, Reason: "not installed"}, nil
+		},
+		func(ctx context.Context, cfg step.StepConfig) (step.StepResult, error) {
+			return step.StepResult{Status: step.StatusFailed, Reason: "install failed"}, nil
+		},
+	)
+	// step-b requires cap-a — should be skipped
+	sc.addStep("step-b", nil, []string{"cap-a"},
+		func(ctx context.Context, cfg step.StepConfig) (step.StepResult, error) {
+			t.Fatal("step-b check should not be called")
+			return step.StepResult{}, nil
+		},
+		nil,
+	)
+
+	r := sc.build()
+
+	type callbackEvent struct {
+		kind   string
+		name   string
+		index  int
+		total  int
+		status step.StepStatus
+	}
+	var events []callbackEvent
+
+	r.OnStepStart = func(stepName string, index int, total int) {
+		events = append(events, callbackEvent{"start", stepName, index, total, ""})
+	}
+	r.OnStepComplete = func(stepName string, index int, total int, result step.StepResult) {
+		events = append(events, callbackEvent{"complete", stepName, index, total, result.Status})
+	}
+
+	r.Run(context.Background())
+
+	// Expect 4 events: start/complete for step-a (failed) and step-b (skipped).
+	if len(events) != 4 {
+		t.Fatalf("expected 4 callback events, got %d", len(events))
+	}
+
+	// Verify skipped step got both callbacks.
+	if events[2].kind != "start" || events[2].name != "step-b" {
+		t.Errorf("expected start callback for step-b, got %+v", events[2])
+	}
+	if events[3].kind != "complete" || events[3].name != "step-b" || events[3].status != step.StatusSkipped {
+		t.Errorf("expected complete callback for step-b with skipped status, got %+v", events[3])
+	}
+}
+
+func TestNilCallbacksDoNotPanic(t *testing.T) {
+	sc := newScenario()
+	sc.addStep("step-a", nil, nil,
+		func(ctx context.Context, cfg step.StepConfig) (step.StepResult, error) {
+			return step.StepResult{Status: step.StatusSatisfied}, nil
+		},
+		nil,
+	)
+
+	r := sc.build()
+	// Ensure OnStepStart and OnStepComplete are nil (default).
+	r.OnStepStart = nil
+	r.OnStepComplete = nil
+
+	// This should not panic.
+	result := r.Run(context.Background())
+	if result.ExitCode != 0 {
+		t.Errorf("expected exit code 0, got %d", result.ExitCode)
+	}
+}
+
+func TestCallbackIndexAndTotal(t *testing.T) {
+	sc := newScenario()
+	for _, name := range []string{"alpha", "beta", "gamma", "delta"} {
+		sc.addStep(name, nil, nil,
+			func(ctx context.Context, cfg step.StepConfig) (step.StepResult, error) {
+				return step.StepResult{Status: step.StatusSatisfied}, nil
+			},
+			nil,
+		)
+	}
+
+	r := sc.build()
+
+	type indexRecord struct {
+		name  string
+		index int
+		total int
+	}
+	var starts []indexRecord
+	var completes []indexRecord
+
+	r.OnStepStart = func(stepName string, index int, total int) {
+		starts = append(starts, indexRecord{stepName, index, total})
+	}
+	r.OnStepComplete = func(stepName string, index int, total int, result step.StepResult) {
+		completes = append(completes, indexRecord{stepName, index, total})
+	}
+
+	r.Run(context.Background())
+
+	if len(starts) != 4 {
+		t.Fatalf("expected 4 start callbacks, got %d", len(starts))
+	}
+	if len(completes) != 4 {
+		t.Fatalf("expected 4 complete callbacks, got %d", len(completes))
+	}
+
+	names := []string{"alpha", "beta", "gamma", "delta"}
+	for i, name := range names {
+		expectedIndex := i + 1 // 1-based
+		expectedTotal := 4
+
+		if starts[i].name != name || starts[i].index != expectedIndex || starts[i].total != expectedTotal {
+			t.Errorf("start[%d]: expected {%s %d %d}, got %+v", i, name, expectedIndex, expectedTotal, starts[i])
+		}
+		if completes[i].name != name || completes[i].index != expectedIndex || completes[i].total != expectedTotal {
+			t.Errorf("complete[%d]: expected {%s %d %d}, got %+v", i, name, expectedIndex, expectedTotal, completes[i])
+		}
+	}
+}
+
 // --- Step not found in step list ---
 
 func TestRunStepNotFound(t *testing.T) {
