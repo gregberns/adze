@@ -33,6 +33,17 @@ type Runner struct {
 	// This allows callers (and tests) to supply full StepConfigs with Items,
 	// Check/Apply commands, timeouts, etc.
 	stepConfigs map[string]step.StepConfig
+
+	// OnStepStart is called immediately before each step's execution begins.
+	// index is the 1-based position in execution order; total is the count of steps.
+	// If nil, the callback is not invoked.
+	OnStepStart func(stepName string, index int, total int)
+
+	// OnStepComplete is called immediately after each step's full lifecycle completes.
+	// index is the 1-based position in execution order; total is the count of steps.
+	// result carries the status, skip reason, duration, and per-item results.
+	// If nil, the callback is not invoked.
+	OnStepComplete func(stepName string, index int, total int, result step.StepResult)
 }
 
 // RunResult holds the outcome of a full graph execution.
@@ -85,18 +96,34 @@ func (r *Runner) Run(ctx context.Context) *RunResult {
 
 	envChecker := makeEnvChecker(r.secrets)
 
-	for _, rs := range r.graph.Steps {
+	total := len(r.graph.Steps)
+
+	for i, rs := range r.graph.Steps {
+		index := i + 1 // 1-based per spec
+
+		// Invoke OnStepStart callback before any work on this step.
+		if r.OnStepStart != nil {
+			r.OnStepStart(rs.Name, index, total)
+		}
+
 		s, ok := stepByName[rs.Name]
 		if !ok {
 			// Step not found in the provided step list — record as failed.
-			results = append(results, StepRunResult{
-				Name:   rs.Name,
+			stepResult := step.StepResult{
 				Status: step.StatusFailed,
 				Reason: fmt.Sprintf("step %q not found in step list", rs.Name),
+			}
+			results = append(results, StepRunResult{
+				Name:   rs.Name,
+				Status: stepResult.Status,
+				Reason: stepResult.Reason,
 			})
 			// Taint all provides.
 			for _, cap := range rs.Config.Provides {
 				tainted[cap] = rs.Name
+			}
+			if r.OnStepComplete != nil {
+				r.OnStepComplete(rs.Name, index, total, stepResult)
 			}
 			continue
 		}
@@ -111,14 +138,21 @@ func (r *Runner) Run(ctx context.Context) *RunResult {
 		}
 
 		if skipReason != "" {
-			results = append(results, StepRunResult{
-				Name:   rs.Name,
+			stepResult := step.StepResult{
 				Status: step.StatusSkipped,
 				Reason: skipReason,
+			}
+			results = append(results, StepRunResult{
+				Name:   rs.Name,
+				Status: stepResult.Status,
+				Reason: stepResult.Reason,
 			})
 			// Propagate taint transitively: this skipped step's provides are also tainted.
 			for _, cap := range rs.Config.Provides {
 				tainted[cap] = rs.Name
+			}
+			if r.OnStepComplete != nil {
+				r.OnStepComplete(rs.Name, index, total, stepResult)
 			}
 			continue
 		}
@@ -143,13 +177,20 @@ func (r *Runner) Run(ctx context.Context) *RunResult {
 
 		if err != nil {
 			// Infrastructure error — treat as failed.
-			results = append(results, StepRunResult{
-				Name:   rs.Name,
+			infraResult := step.StepResult{
 				Status: step.StatusFailed,
 				Reason: fmt.Sprintf("infrastructure error: %v", err),
+			}
+			results = append(results, StepRunResult{
+				Name:   rs.Name,
+				Status: infraResult.Status,
+				Reason: infraResult.Reason,
 			})
 			for _, cap := range rs.Config.Provides {
 				tainted[cap] = rs.Name
+			}
+			if r.OnStepComplete != nil {
+				r.OnStepComplete(rs.Name, index, total, infraResult)
 			}
 			continue
 		}
@@ -185,6 +226,11 @@ func (r *Runner) Run(ctx context.Context) *RunResult {
 			for _, cap := range rs.Config.Provides {
 				tainted[cap] = rs.Name
 			}
+		}
+
+		// Invoke OnStepComplete callback after the step's full lifecycle.
+		if r.OnStepComplete != nil {
+			r.OnStepComplete(rs.Name, index, total, result)
 		}
 	}
 
