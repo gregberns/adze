@@ -34,6 +34,7 @@ func newApplyCmd() *cobra.Command {
 type applyEvent struct {
 	Type     string `json:"type"`
 	Step     string `json:"step,omitempty"`
+	Index    int    `json:"index,omitempty"`
 	Status   string `json:"status,omitempty"`
 	Reason   string `json:"reason,omitempty"`
 	Duration string `json:"duration,omitempty"`
@@ -169,19 +170,17 @@ func runApply(cmd *cobra.Command, args []string) error {
 func applyWithProgress(ctx context.Context, w io.Writer, r *runner.Runner, graph *dag.ResolvedGraph, colorOn bool, tty bool) error {
 	progress := ui.NewProgress(w, len(graph.Steps), colorOn, tty)
 
-	// We can't use progress callbacks with the current Runner API directly.
-	// The Runner.Run() method runs all steps and returns the result.
-	// For TTY mode, we print step-by-step after the run completes.
-	// A future enhancement could add a callback-based Runner.
+	// Wire Runner callbacks to drive live progress display.
+	r.OnStepStart = func(stepName string, index int, total int) {
+		progress.StartStep(stepName)
+	}
+	r.OnStepComplete = func(stepName string, index int, total int, result step.StepResult) {
+		status := mapStepStatus(result.Status)
+		progress.CompleteStep(stepName, status, result.Reason, result.Duration)
+	}
 
 	result := r.Run(ctx)
 
-	// Display each step result
-	for _, sr := range result.StepResults {
-		progress.StartStep(sr.Name)
-		status := mapStepStatus(sr.Status)
-		progress.CompleteStep(sr.Name, status, sr.Reason, sr.Duration)
-	}
 	progress.Finish()
 
 	// Print summary
@@ -193,28 +192,39 @@ func applyWithProgress(ctx context.Context, w io.Writer, r *runner.Runner, graph
 
 // applyWithJSON runs the apply and outputs NDJSON events.
 func applyWithJSON(ctx context.Context, w io.Writer, r *runner.Runner, graph *dag.ResolvedGraph) error {
-	result := r.Run(ctx)
-
 	enc := json.NewEncoder(w)
 
-	// Emit per-step events
-	for _, sr := range result.StepResults {
-		evt := applyEvent{
-			Type:   "step",
-			Step:   sr.Name,
-			Status: string(sr.Status),
-			Reason: sr.Reason,
-		}
-		if sr.Duration > 0 {
-			evt.Duration = sr.Duration.String()
-		}
-		enc.Encode(evt)
+	// Wire Runner callbacks to emit NDJSON events in real-time.
+	r.OnStepStart = func(stepName string, index int, total int) {
+		enc.Encode(applyEvent{
+			Type:  "step_start",
+			Step:  stepName,
+			Index: index,
+			Total: total,
+		})
 	}
 
-	// Emit summary event
 	var applied, satisfied, failed, skipped int
-	for _, sr := range result.StepResults {
-		switch sr.Status {
+	r.OnStepComplete = func(stepName string, index int, total int, result step.StepResult) {
+		evt := applyEvent{
+			Type:   "step_complete",
+			Step:   stepName,
+			Status: string(result.Status),
+		}
+		// Reason is shown only for skipped or failed steps.
+		if result.Reason != "" {
+			switch result.Status {
+			case step.StatusSkipped, step.StatusFailed, step.StatusVerifyFailed, step.StatusPartial:
+				evt.Reason = result.Reason
+			}
+		}
+		if result.Duration > 0 {
+			evt.Duration = result.Duration.String()
+		}
+		enc.Encode(evt)
+
+		// Track counts for the summary event.
+		switch result.Status {
 		case step.StatusApplied:
 			applied++
 		case step.StatusSatisfied:
@@ -226,7 +236,10 @@ func applyWithJSON(ctx context.Context, w io.Writer, r *runner.Runner, graph *da
 		}
 	}
 
-	summaryEvt := applyEvent{
+	result := r.Run(ctx)
+
+	// Emit summary event after all steps complete.
+	enc.Encode(applyEvent{
 		Type:      "summary",
 		Total:     len(result.StepResults),
 		Applied:   applied,
@@ -234,8 +247,7 @@ func applyWithJSON(ctx context.Context, w io.Writer, r *runner.Runner, graph *da
 		Failed:    failed,
 		Skipped:   skipped,
 		ExitCode:  result.ExitCode,
-	}
-	enc.Encode(summaryEvt)
+	})
 
 	return mapRunResultToExit(result)
 }
