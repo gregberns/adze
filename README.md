@@ -7,8 +7,10 @@ An adze shapes rough wood into a flat working surface -- takes a raw machine and
 ## Quick Start
 
 ```bash
-# Install
-curl -fsSL https://raw.githubusercontent.com/gregberns/adze/main/install.sh | bash
+# Install (download, then run — needs an interactive shell for sudo /
+# Homebrew / xcode-select prompts during the source-build fallback)
+curl -fsSL https://raw.githubusercontent.com/gregberns/adze/main/install.sh -o install.sh
+bash install.sh
 
 # Scan your current machine to generate a config
 adze init > my-machine.yaml
