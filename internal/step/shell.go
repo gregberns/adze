@@ -52,6 +52,7 @@ func (s *ShellStep) Check(ctx context.Context, cfg StepConfig) (StepResult, erro
 	return StepResult{
 		Status:   StatusFailed,
 		Reason:   fmt.Sprintf("check exited with code %d", result.ExitCode),
+		Output:   CombineOutput(result.Stdout, result.Stderr),
 		Duration: result.Duration,
 	}, nil
 }
@@ -93,6 +94,7 @@ func (s *ShellStep) Apply(ctx context.Context, cfg StepConfig) (StepResult, erro
 	return StepResult{
 		Status:   StatusFailed,
 		Reason:   fmt.Sprintf("apply exited with code %d", result.ExitCode),
+		Output:   CombineOutput(result.Stdout, result.Stderr),
 		Duration: result.Duration,
 	}, nil
 }

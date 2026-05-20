@@ -70,17 +70,15 @@ func ExecuteStep(ctx context.Context, s Step, cfg StepConfig, platform string, e
 	// Check unsatisfied (non-zero, timeout, nil check) — continue to APPLY.
 
 	// --- APPLY ---
-	// Platform dispatch: resolve the apply command.
+	// Platform dispatch: resolve the apply command. If nil (no command in
+	// StepConfig), still call s.Apply(cfg) — built-in step impls may have
+	// their own Apply logic (e.g., OhMyZshStep). ShellStep handles nil-Apply
+	// by returning StatusSkipped, preserving custom-step semantics.
 	applyCfg := cfg
 	resolvedApply := resolveApplyCommand(cfg, platform)
-	if resolvedApply == nil {
-		return StepResult{
-			Status:   StatusSkipped,
-			Reason:   fmt.Sprintf("no apply command for platform %s", platform),
-			Duration: time.Since(start),
-		}, nil
+	if resolvedApply != nil {
+		applyCfg.Apply = resolvedApply
 	}
-	applyCfg.Apply = resolvedApply
 
 	applyCtx, applyCancel := context.WithTimeout(ctx, applyTimeout)
 	defer applyCancel()
@@ -152,15 +150,12 @@ func runCheck(ctx context.Context, s Step, cfg StepConfig, timeout time.Duration
 	return result, nil
 }
 
-// runVerify re-runs the check command after apply to confirm desired state.
+// runVerify re-runs the check after apply to confirm desired state. Like the
+// initial check, this calls s.Check() unconditionally — the step impl decides
+// what to do when cfg.Check is nil. Built-in impls have their own check
+// logic; ShellStep returns StatusFailed when cfg.Check is nil, which the
+// caller treats as verify-failed.
 func runVerify(ctx context.Context, s Step, cfg StepConfig, timeout time.Duration) (StepResult, error) {
-	if cfg.Check == nil {
-		return StepResult{
-			Status: StatusVerifyFailed,
-			Reason: "no check command for verify",
-		}, nil
-	}
-
 	verifyCtx, verifyCancel := context.WithTimeout(ctx, timeout)
 	defer verifyCancel()
 
@@ -238,6 +233,31 @@ func ExecuteBatchStep(ctx context.Context, s Step, cfg StepConfig, platform stri
 
 	// Resolve apply command for platform.
 	resolvedApply := resolveApplyCommand(cfg, platform)
+
+	// Nil-command dispatch: when StepConfig has no Apply or PlatformApply, the
+	// built-in step impl is expected to iterate cfg.Items internally (the
+	// pattern used by all built-in batch impls via batchApply). Call s.Apply
+	// once for the whole batch and use its returned ItemResults verbatim.
+	// Verify is delegated to the impl (built-in batchApply does per-item
+	// verify internally). ShellStep (custom YAML batch) returns StatusSkipped
+	// in this path, preserving its existing contract.
+	if resolvedApply == nil {
+		applyCtx, applyCancel := context.WithTimeout(ctx, applyTimeout)
+		defer applyCancel()
+		applyResult, err := s.Apply(applyCtx, cfg)
+		if err != nil {
+			return StepResult{Duration: time.Since(start)}, err
+		}
+		if applyCtx.Err() != nil {
+			return StepResult{
+				Status:   StatusFailed,
+				Reason:   fmt.Sprintf("timed out after %s", applyTimeout),
+				Duration: time.Since(start),
+			}, nil
+		}
+		applyResult.Duration = time.Since(start)
+		return applyResult, nil
+	}
 
 	var itemResults []ItemResult
 

@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -239,10 +240,14 @@ func TestRunExitCode0WithSkips(t *testing.T) {
 			Name: "step-skipped",
 		},
 	})
-	// Add a mock step that returns skipped.
+	// Add a mock step whose check is unsatisfied and whose apply returns
+	// skipped (the equivalent of "no apply command for this platform").
 	r.steps = append(r.steps, &mockStep{
 		name: "step-skipped",
 		checkFunc: func(ctx context.Context, cfg step.StepConfig) (step.StepResult, error) {
+			return step.StepResult{Status: step.StatusFailed, Reason: "not satisfied"}, nil
+		},
+		applyFunc: func(ctx context.Context, cfg step.StepConfig) (step.StepResult, error) {
 			return step.StepResult{Status: step.StatusSkipped, Reason: "no apply command for platform darwin"}, nil
 		},
 	})
@@ -1226,5 +1231,117 @@ func TestRunStepNotFound(t *testing.T) {
 	}
 	if !strings.Contains(result.StepResults[0].Reason, "not found") {
 		t.Errorf("expected reason to mention 'not found', got %q", result.StepResults[0].Reason)
+	}
+}
+
+// TestRunner_LogContentFromOutput verifies that a failed step's log file
+// contains the captured Output (not just the Reason summary).
+func TestRunner_LogContentFromOutput(t *testing.T) {
+	logDir := filepath.Join(os.TempDir(), fmt.Sprintf("adze-log-test-%d", time.Now().UnixNano()))
+	defer os.RemoveAll(logDir)
+
+	sc := newScenario()
+	sc.addStep("failing-step", nil, nil,
+		func(ctx context.Context, cfg step.StepConfig) (step.StepResult, error) {
+			return step.StepResult{Status: step.StatusFailed, Reason: "short"}, nil
+		},
+		func(ctx context.Context, cfg step.StepConfig) (step.StepResult, error) {
+			return step.StepResult{
+				Status: step.StatusFailed,
+				Reason: "short",
+				Output: "DETAILED OUTPUT FROM SUBPROCESS",
+			}, nil
+		},
+	)
+
+	r := sc.build()
+	r.logDir = logDir
+	r.Run(context.Background())
+
+	logPath := filepath.Join(logDir, "failing-step.log")
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("reading log file: %v", err)
+	}
+	if !strings.Contains(string(content), "DETAILED OUTPUT FROM SUBPROCESS") {
+		t.Errorf("log content = %q, want substring 'DETAILED OUTPUT FROM SUBPROCESS'", string(content))
+	}
+}
+
+// TestRunner_LogFallsBackToReason verifies that when Output is empty but
+// Reason is set, the log file contains the Reason.
+func TestRunner_LogFallsBackToReason(t *testing.T) {
+	logDir := filepath.Join(os.TempDir(), fmt.Sprintf("adze-log-test-%d", time.Now().UnixNano()))
+	defer os.RemoveAll(logDir)
+
+	sc := newScenario()
+	sc.addStep("failing-step", nil, nil,
+		func(ctx context.Context, cfg step.StepConfig) (step.StepResult, error) {
+			return step.StepResult{Status: step.StatusFailed, Reason: "fallback reason"}, nil
+		},
+		func(ctx context.Context, cfg step.StepConfig) (step.StepResult, error) {
+			return step.StepResult{Status: step.StatusFailed, Reason: "fallback reason"}, nil
+		},
+	)
+
+	r := sc.build()
+	r.logDir = logDir
+	r.Run(context.Background())
+
+	logPath := filepath.Join(logDir, "failing-step.log")
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("reading log file: %v", err)
+	}
+	if string(content) != "fallback reason" {
+		t.Errorf("log content = %q, want %q", string(content), "fallback reason")
+	}
+}
+
+// TestRunner_LogContentNeverEmpty is a table-driven test confirming the
+// precedence (Output > Reason > stub) and that the log is never zero bytes.
+func TestRunner_LogContentNeverEmpty(t *testing.T) {
+	cases := []struct {
+		name     string
+		output   string
+		reason   string
+		expected string
+	}{
+		{"output_wins", "X", "Y", "X"},
+		{"reason_fallback", "", "Y", "Y"},
+		{"output_only", "X", "", "X"},
+		{"both_empty_stub", "", "", "(step reported failure with no captured output or reason)\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			logDir := filepath.Join(os.TempDir(), fmt.Sprintf("adze-log-test-%s-%d", tc.name, time.Now().UnixNano()))
+			defer os.RemoveAll(logDir)
+
+			sc := newScenario()
+			outp, rsn := tc.output, tc.reason
+			sc.addStep("step", nil, nil,
+				func(ctx context.Context, cfg step.StepConfig) (step.StepResult, error) {
+					return step.StepResult{Status: step.StatusFailed, Reason: rsn, Output: outp}, nil
+				},
+				func(ctx context.Context, cfg step.StepConfig) (step.StepResult, error) {
+					return step.StepResult{Status: step.StatusFailed, Reason: rsn, Output: outp}, nil
+				},
+			)
+			r := sc.build()
+			r.logDir = logDir
+			r.Run(context.Background())
+
+			logPath := filepath.Join(logDir, "step.log")
+			content, err := os.ReadFile(logPath)
+			if err != nil {
+				t.Fatalf("reading log: %v", err)
+			}
+			if len(content) == 0 {
+				t.Errorf("log content is empty (should never happen for a failure)")
+			}
+			if string(content) != tc.expected {
+				t.Errorf("log content = %q, want %q", string(content), tc.expected)
+			}
+		})
 	}
 }

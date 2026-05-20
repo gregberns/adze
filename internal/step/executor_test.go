@@ -3,6 +3,7 @@ package step
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -264,22 +265,17 @@ func TestExecuteStepPlatformDispatch(t *testing.T) {
 	}
 }
 
-// TestExecuteStepNoPlatformApply verifies skip when no apply command for platform.
+// TestExecuteStepNoPlatformApply verifies that ShellStep returns StatusSkipped
+// when StepConfig has no Apply or PlatformApply. After the dispatch fix, the
+// executor calls s.Apply() in this case; ShellStep is the impl that self-skips.
 func TestExecuteStepNoPlatformApply(t *testing.T) {
-	s := &mockStep{
-		name: "no-platform",
-		checkFunc: func(ctx context.Context, cfg StepConfig) (StepResult, error) {
-			return StepResult{Status: StatusFailed, Reason: "not installed"}, nil
-		},
-		applyFunc: func(ctx context.Context, cfg StepConfig) (StepResult, error) {
-			t.Fatal("apply should not be called")
-			return StepResult{}, nil
-		},
-	}
+	s := NewShellStep("no-platform")
 
 	cfg := StepConfig{
-		Name:  "no-platform",
-		Check: &ShellCommand{Args: []string{"false"}},
+		Name:         "no-platform",
+		Check:        &ShellCommand{Args: []string{"false"}},
+		CheckTimeout: time.Second,
+		ApplyTimeout: time.Second,
 		// No Apply, no PlatformApply.
 	}
 
@@ -290,8 +286,8 @@ func TestExecuteStepNoPlatformApply(t *testing.T) {
 	if result.Status != StatusSkipped {
 		t.Errorf("expected skipped, got %s", result.Status)
 	}
-	if result.Reason == "" {
-		t.Error("expected reason for skipped step")
+	if !strings.Contains(result.Reason, "no apply command") {
+		t.Errorf("expected reason 'no apply command', got %q", result.Reason)
 	}
 }
 
@@ -840,5 +836,122 @@ func TestExecuteStepInfraError(t *testing.T) {
 	_, err := ExecuteStep(context.Background(), s, cfg, "darwin", nil)
 	if err == nil {
 		t.Fatal("expected infra error to propagate")
+	}
+}
+
+// TestExecuteStep_NilApply_CallsStepImpl verifies that when StepConfig has
+// no Apply/PlatformApply, the executor still calls the step impl's Apply
+// (rather than short-circuiting to StatusSkipped).
+func TestExecuteStep_NilApply_CallsStepImpl(t *testing.T) {
+	applyCalled := 0
+	checkCount := 0
+	s := &mockStep{
+		name: "impl-driven",
+		checkFunc: func(ctx context.Context, cfg StepConfig) (StepResult, error) {
+			checkCount++
+			if checkCount == 1 {
+				return StepResult{Status: StatusFailed, Reason: "not satisfied"}, nil
+			}
+			return StepResult{Status: StatusSatisfied}, nil
+		},
+		applyFunc: func(ctx context.Context, cfg StepConfig) (StepResult, error) {
+			applyCalled++
+			return StepResult{Status: StatusApplied}, nil
+		},
+	}
+	cfg := StepConfig{
+		Name:         "impl-driven",
+		Check:        &ShellCommand{Args: []string{"false"}},
+		CheckTimeout: time.Second,
+		ApplyTimeout: time.Second,
+		// nil Apply, nil PlatformApply.
+	}
+	result, err := ExecuteStep(context.Background(), s, cfg, "darwin", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if applyCalled != 1 {
+		t.Errorf("Apply called %d times, want 1", applyCalled)
+	}
+	if result.Status != StatusApplied {
+		t.Errorf("status = %q, want %q", result.Status, StatusApplied)
+	}
+}
+
+// TestExecuteBatchStep_NilApply_CallsImpl verifies the same for batch steps:
+// when StepConfig has no Apply/PlatformApply, the executor calls s.Apply(cfg)
+// once for the whole batch and uses the returned ItemResults.
+func TestExecuteBatchStep_NilApply_CallsImpl(t *testing.T) {
+	applyCalled := 0
+	s := &mockStep{
+		name: "batch-impl",
+		checkFunc: func(ctx context.Context, cfg StepConfig) (StepResult, error) {
+			return StepResult{Status: StatusFailed}, nil
+		},
+		applyFunc: func(ctx context.Context, cfg StepConfig) (StepResult, error) {
+			applyCalled++
+			return StepResult{
+				Status: StatusApplied,
+				ItemResults: []ItemResult{
+					{Item: StepItem{Name: "a"}, Status: StatusApplied},
+					{Item: StepItem{Name: "b"}, Status: StatusApplied},
+				},
+			}, nil
+		},
+	}
+	cfg := StepConfig{
+		Name:         "batch-impl",
+		Items:        []StepItem{{Name: "a"}, {Name: "b"}},
+		CheckTimeout: time.Second,
+		ApplyTimeout: time.Second,
+	}
+	result, err := ExecuteBatchStep(context.Background(), s, cfg, "darwin", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if applyCalled != 1 {
+		t.Errorf("Apply called %d times, want 1 (whole batch in one call)", applyCalled)
+	}
+	if result.Status != StatusApplied {
+		t.Errorf("status = %q, want %q", result.Status, StatusApplied)
+	}
+	if len(result.ItemResults) != 2 {
+		t.Fatalf("got %d ItemResults, want 2", len(result.ItemResults))
+	}
+}
+
+// TestExecuteBatchStep_NilApply_PartialPreservesOutput verifies that a partial
+// failure from the impl preserves per-item Output (used for log files).
+func TestExecuteBatchStep_NilApply_PartialPreservesOutput(t *testing.T) {
+	s := &mockStep{
+		name: "batch-partial",
+		checkFunc: func(ctx context.Context, cfg StepConfig) (StepResult, error) {
+			return StepResult{Status: StatusFailed}, nil
+		},
+		applyFunc: func(ctx context.Context, cfg StepConfig) (StepResult, error) {
+			return StepResult{
+				Status: StatusPartial,
+				ItemResults: []ItemResult{
+					{Item: StepItem{Name: "a"}, Status: StatusApplied},
+					{Item: StepItem{Name: "b"}, Status: StatusFailed, Reason: "install failed", Output: "diagnostic stderr"},
+				},
+			}, nil
+		},
+	}
+	cfg := StepConfig{
+		Name:         "batch-partial",
+		Items:        []StepItem{{Name: "a"}, {Name: "b"}},
+		CheckTimeout: time.Second,
+		ApplyTimeout: time.Second,
+	}
+	result, err := ExecuteBatchStep(context.Background(), s, cfg, "darwin", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != StatusPartial {
+		t.Errorf("status = %q, want %q", result.Status, StatusPartial)
+	}
+	if got := result.ItemResults[1].Output; got != "diagnostic stderr" {
+		t.Errorf("failed item Output = %q, want preserved 'diagnostic stderr'", got)
 	}
 }

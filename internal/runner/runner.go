@@ -204,15 +204,16 @@ func (r *Runner) Run(ctx context.Context) *RunResult {
 		}
 
 		// Write log files for failures and record the log path.
+		// Content precedence: Output (captured stdout+stderr) > Reason > diagnostic stub.
 		switch result.Status {
 		case step.StatusFailed, step.StatusVerifyFailed:
-			logPath := r.writeLogFile(rs.Name, "", result.Reason)
+			logPath := r.writeLogFile(rs.Name, "", logContent(result.Output, result.Reason))
 			sr.LogPath = logPath
 		case step.StatusPartial:
 			// For partial batch steps, write logs for each failed item.
 			for _, ir := range result.ItemResults {
 				if ir.Status == step.StatusFailed {
-					logPath := r.writeLogFile(rs.Name, ir.Item.Name, ir.Reason)
+					logPath := r.writeLogFile(rs.Name, ir.Item.Name, logContent(ir.Output, ir.Reason))
 					sr.LogPath = logPath // last failed item's path; summary will show per-item
 				}
 			}
@@ -305,6 +306,19 @@ func computeExitCode(results []StepRunResult) int {
 	default:
 		return 0
 	}
+}
+
+// logContent picks the right log-file content from a step or item result.
+// Precedence: captured Output > Reason > diagnostic stub. Guarantees a
+// non-empty string so the log file is never zero bytes for a failure.
+func logContent(output, reason string) string {
+	if output != "" {
+		return output
+	}
+	if reason != "" {
+		return reason
+	}
+	return "(step reported failure with no captured output or reason)\n"
 }
 
 // writeLogFile writes a log file for a failed step or item.

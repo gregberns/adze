@@ -50,6 +50,7 @@ func runShellCheck(ctx context.Context, run CommandRunner, command string, env [
 	return step.StepResult{
 		Status:   step.StatusFailed,
 		Reason:   fmt.Sprintf("check exited with code %d", result.ExitCode),
+		Output:   step.CombineOutput(result.Stdout, result.Stderr),
 		Duration: result.Duration,
 	}, nil
 }
@@ -70,6 +71,7 @@ func runShellApply(ctx context.Context, run CommandRunner, command string, env [
 	return step.StepResult{
 		Status:   step.StatusFailed,
 		Reason:   fmt.Sprintf("apply exited with code %d", result.ExitCode),
+		Output:   step.CombineOutput(result.Stdout, result.Stderr),
 		Duration: result.Duration,
 	}, nil
 }
@@ -112,6 +114,7 @@ func batchCheck(ctx context.Context, run CommandRunner, cfg step.StepConfig, ste
 			Item:   item,
 			Status: checkResult.Status,
 			Reason: checkResult.Reason,
+			Output: checkResult.Output,
 		})
 	}
 
@@ -158,6 +161,7 @@ func batchApply(ctx context.Context, run CommandRunner, cfg step.StepConfig, ste
 				Item:   item,
 				Status: step.StatusFailed,
 				Reason: applyResult.Reason,
+				Output: applyResult.Output,
 			})
 			continue
 		}
@@ -177,6 +181,7 @@ func batchApply(ctx context.Context, run CommandRunner, cfg step.StepConfig, ste
 				Item:   item,
 				Status: step.StatusFailed,
 				Reason: "verify failed",
+				Output: verifyResult.Output,
 			})
 		}
 	}

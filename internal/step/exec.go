@@ -7,9 +7,29 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 	"time"
 )
+
+// CombineOutput joins captured stdout and stderr into a single string, trimming
+// trailing newlines and inserting a single separator if both streams produced
+// output. Order: stdout first, then stderr. Exported for use by step
+// implementations in sibling packages.
+func CombineOutput(stdout, stderr string) string {
+	so := strings.TrimRight(stdout, "\n")
+	se := strings.TrimRight(stderr, "\n")
+	switch {
+	case so == "" && se == "":
+		return ""
+	case so == "":
+		return se
+	case se == "":
+		return so
+	default:
+		return so + "\n" + se
+	}
+}
 
 // ExecResult holds the result of a command execution.
 type ExecResult struct {

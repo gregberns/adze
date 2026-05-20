@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/gregberns/adze/internal/config"
 	"github.com/gregberns/adze/internal/dag"
+	"github.com/gregberns/adze/internal/step"
 	"github.com/gregberns/adze/internal/steps"
 )
 
@@ -205,5 +208,99 @@ func TestScenario_MacOSDevExampleFile(t *testing.T) {
 
 	if names["rust"] {
 		t.Error("rust must NOT appear in plan from examples/macos-dev.yaml — regression of the wiring bug")
+	}
+}
+
+// fakeStep is a minimal Step impl for scenario dispatch tests.
+type fakeStep struct {
+	name        string
+	applyResult step.StepResult
+	applyCalled int
+}
+
+func (f *fakeStep) Name() string { return f.name }
+func (f *fakeStep) Check(ctx context.Context, cfg step.StepConfig) (step.StepResult, error) {
+	return step.StepResult{Status: step.StatusFailed, Reason: "not satisfied"}, nil
+}
+func (f *fakeStep) Apply(ctx context.Context, cfg step.StepConfig) (step.StepResult, error) {
+	f.applyCalled++
+	return f.applyResult, nil
+}
+
+// TestScenario_OhMyZshDispatched verifies that the executor calls
+// the impl's Apply (rather than short-circuiting with "no apply command")
+// for built-in atomic steps whose StepConfig has nil Apply.
+func TestScenario_OhMyZshDispatched(t *testing.T) {
+	checkCount := 0
+	fake := &fakeStep2{
+		applyResult: step.StepResult{Status: step.StatusApplied},
+		checkFlip:   &checkCount,
+	}
+	cfg := step.StepConfig{
+		Name:         "oh-my-zsh",
+		Provides:     []string{"oh-my-zsh"},
+		CheckTimeout: time.Second,
+		ApplyTimeout: time.Second,
+	}
+	result, err := step.ExecuteStep(context.Background(), fake, cfg, "darwin", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if fake.applyCalled != 1 {
+		t.Errorf("Apply called %d times, want 1", fake.applyCalled)
+	}
+	if result.Status != step.StatusApplied {
+		t.Errorf("status = %q, want %q", result.Status, step.StatusApplied)
+	}
+}
+
+// fakeStep2 flips check between Failed (first call) and Satisfied (verify).
+type fakeStep2 struct {
+	applyResult step.StepResult
+	applyCalled int
+	checkFlip   *int
+}
+
+func (f *fakeStep2) Name() string { return "fake" }
+func (f *fakeStep2) Check(ctx context.Context, cfg step.StepConfig) (step.StepResult, error) {
+	*f.checkFlip++
+	if *f.checkFlip == 1 {
+		return step.StepResult{Status: step.StatusFailed}, nil
+	}
+	return step.StepResult{Status: step.StatusSatisfied}, nil
+}
+func (f *fakeStep2) Apply(ctx context.Context, cfg step.StepConfig) (step.StepResult, error) {
+	f.applyCalled++
+	return f.applyResult, nil
+}
+
+// TestScenario_BrewPackagesDispatched verifies the same for batch steps:
+// a built-in batch impl with nil Apply in its StepConfig still gets its
+// Apply method called once for the whole batch.
+func TestScenario_BrewPackagesDispatched(t *testing.T) {
+	fake := &fakeStep{
+		name: "brew-packages",
+		applyResult: step.StepResult{
+			Status: step.StatusApplied,
+			ItemResults: []step.ItemResult{
+				{Item: step.StepItem{Name: "git"}, Status: step.StatusApplied},
+			},
+		},
+	}
+	cfg := step.StepConfig{
+		Name:         "brew-packages",
+		Items:        []step.StepItem{{Name: "git"}},
+		CheckTimeout: time.Second,
+		ApplyTimeout: time.Second,
+	}
+	result, err := step.ExecuteBatchStep(context.Background(), fake, cfg, "darwin", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if fake.applyCalled != 1 {
+		t.Errorf("Apply called %d times, want 1", fake.applyCalled)
+	}
+	if result.Status != step.StatusApplied {
+		t.Errorf("status = %q, want %q", result.Status, step.StatusApplied)
 	}
 }

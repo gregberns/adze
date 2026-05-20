@@ -35,8 +35,9 @@ const (
 // StepResult holds the outcome of a step execution.
 type StepResult struct {
 	Status      StepStatus
-	Reason      string        // MUST be set when Failed, Skipped, or VerifyFailed
-	ItemResults []ItemResult  // nil for atomic steps
+	Reason      string       // MUST be set when Failed, Skipped, or VerifyFailed
+	Output      string       // combined stdout+stderr from the step's subprocess (empty if no subprocess invoked)
+	ItemResults []ItemResult // nil for atomic steps
 	Duration    time.Duration
 }
 
@@ -45,4 +46,5 @@ type ItemResult struct {
 	Item   StepItem
 	Status StepStatus // only: satisfied, applied, failed
 	Reason string     // MUST be set when failed
+	Output string     // combined stdout+stderr from the item's subprocess (empty if no subprocess invoked)
 }

@@ -3,6 +3,7 @@ package steps
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/gregberns/adze/internal/step"
@@ -539,5 +540,143 @@ func TestGSettingsBatch(t *testing.T) {
 	}
 	if result.Status != step.StatusSatisfied {
 		t.Errorf("expected satisfied, got %s", result.Status)
+	}
+}
+
+// TestRunShellApply_FailureCapturesOutput verifies that runShellApply
+// populates StepResult.Output with combined stdout+stderr on failure.
+func TestRunShellApply_FailureCapturesOutput(t *testing.T) {
+	runner := func(ctx context.Context, cmd *step.ShellCommand, env []string, stepName, phase string) (step.ExecResult, error) {
+		return step.ExecResult{ExitCode: 1, Stdout: "out-line", Stderr: "err-line"}, nil
+	}
+	result, err := runShellApply(context.Background(), runner, "true", nil, "test-step")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != step.StatusFailed {
+		t.Errorf("status = %q, want failed", result.Status)
+	}
+	if !strings.Contains(result.Output, "out-line") {
+		t.Errorf("Output missing stdout: %q", result.Output)
+	}
+	if !strings.Contains(result.Output, "err-line") {
+		t.Errorf("Output missing stderr: %q", result.Output)
+	}
+}
+
+// TestRunShellCheck_FailureCapturesOutput verifies the same for runShellCheck.
+func TestRunShellCheck_FailureCapturesOutput(t *testing.T) {
+	runner := func(ctx context.Context, cmd *step.ShellCommand, env []string, stepName, phase string) (step.ExecResult, error) {
+		return step.ExecResult{ExitCode: 1, Stdout: "", Stderr: "check-err"}, nil
+	}
+	result, err := runShellCheck(context.Background(), runner, "false", nil, "test-step")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Output != "check-err" {
+		t.Errorf("Output = %q, want %q", result.Output, "check-err")
+	}
+}
+
+// TestBatchApply_PerItemOutputCaptured verifies that batchApply preserves
+// per-item Output in failed ItemResults.
+func TestBatchApply_PerItemOutputCaptured(t *testing.T) {
+	runner := func(ctx context.Context, cmd *step.ShellCommand, env []string, stepName, phase string) (step.ExecResult, error) {
+		// Find ADZE_ITEM_NAME in env.
+		itemName := ""
+		for _, e := range env {
+			if strings.HasPrefix(e, "ADZE_ITEM_NAME=") {
+				itemName = strings.TrimPrefix(e, "ADZE_ITEM_NAME=")
+				break
+			}
+		}
+		if phase == "check" {
+			return step.ExecResult{ExitCode: 1, Stderr: "not installed"}, nil
+		}
+		if itemName == "bad-pkg" {
+			return step.ExecResult{ExitCode: 1, Stderr: "package bad-pkg not found"}, nil
+		}
+		return step.ExecResult{ExitCode: 0}, nil
+	}
+	cfg := step.StepConfig{
+		Name:  "test-batch",
+		Items: []step.StepItem{{Name: "good-pkg"}, {Name: "bad-pkg"}},
+	}
+	result, err := batchApply(context.Background(), runner, cfg, "test-batch",
+		func(i step.StepItem) string { return "check " + i.Name },
+		func(i step.StepItem) string { return "apply " + i.Name },
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.ItemResults) != 2 {
+		t.Fatalf("got %d ItemResults, want 2", len(result.ItemResults))
+	}
+	var badItem *step.ItemResult
+	for i := range result.ItemResults {
+		if result.ItemResults[i].Item.Name == "bad-pkg" {
+			badItem = &result.ItemResults[i]
+			break
+		}
+	}
+	if badItem == nil {
+		t.Fatal("bad-pkg ItemResult not found")
+	}
+	if badItem.Status != step.StatusFailed {
+		t.Errorf("bad-pkg status = %q, want failed", badItem.Status)
+	}
+	if !strings.Contains(badItem.Output, "package bad-pkg not found") {
+		t.Errorf("bad-pkg Output = %q, want substring 'package bad-pkg not found'", badItem.Output)
+	}
+}
+
+// TestExecuteBatchStep_RealBrewPackagesStep is an integration test exercising
+// the real BrewPackagesStep through step.ExecuteBatchStep's nil-dispatch path.
+// Catches wire-up regressions if someone reintroduces a per-item loop wrapper
+// around the impl call.
+func TestExecuteBatchStep_RealBrewPackagesStep(t *testing.T) {
+	var applyCalls int
+	installed := map[string]bool{}
+	runner := func(ctx context.Context, cmd *step.ShellCommand, env []string, name, phase string) (step.ExecResult, error) {
+		// Find the item name from env.
+		itemName := ""
+		for _, e := range env {
+			if strings.HasPrefix(e, "ADZE_ITEM_NAME=") {
+				itemName = strings.TrimPrefix(e, "ADZE_ITEM_NAME=")
+				break
+			}
+		}
+		switch phase {
+		case "check":
+			if installed[itemName] {
+				return step.ExecResult{ExitCode: 0}, nil
+			}
+			return step.ExecResult{ExitCode: 1}, nil // not installed yet
+		case "apply":
+			applyCalls++
+			installed[itemName] = true
+			return step.ExecResult{ExitCode: 0}, nil
+		}
+		return step.ExecResult{}, nil
+	}
+	s := &BrewPackagesStep{run: runner}
+	cfg := step.StepConfig{
+		Name:         "brew-packages",
+		Items:        []step.StepItem{{Name: "git"}, {Name: "jq"}},
+		CheckTimeout: 5 * 1000 * 1000 * 1000, // 5s in ns
+		ApplyTimeout: 5 * 1000 * 1000 * 1000,
+	}
+	result, err := step.ExecuteBatchStep(context.Background(), s, cfg, "darwin", nil)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if result.Status != step.StatusApplied {
+		t.Errorf("status = %q, want %q", result.Status, step.StatusApplied)
+	}
+	if len(result.ItemResults) != 2 {
+		t.Fatalf("got %d items, want 2", len(result.ItemResults))
+	}
+	if applyCalls < 2 {
+		t.Errorf("apply called %d times, want >= 2 (per-item)", applyCalls)
 	}
 }

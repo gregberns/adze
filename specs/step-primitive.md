@@ -193,11 +193,23 @@ The executor MUST apply `cfg.ApplyTimeout` to the Apply phase. The default `Appl
 3. If the process has not exited after 5 seconds, the executor MUST send `SIGKILL`.
 4. The result MUST be `StatusFailed` with `Reason` set to `"timed out after <ApplyTimeout>"`.
 
-If the apply command exits non-zero, the executor MUST capture the full stderr output and write it to the step's log file.
+If the apply command exits non-zero, the step implementation MUST populate `StepResult.Output` with the combined captured stdout and stderr; the runner writes this to the step's log file.
+
+#### Nil-command Dispatch
+
+If `resolveApplyCommand(cfg, platform)` returns nil (i.e., both `cfg.Apply` and `cfg.PlatformApply[platform]` are nil), the executor MUST still invoke the step implementation's `Apply()` method, passing `cfg` as-is.
+
+The step implementation decides how to handle a nil-command StepConfig:
+- `ShellStep` (used by custom YAML steps) returns `StatusSkipped` with reason `"no apply command"`.
+- Built-in implementations with their own Apply logic (e.g., `OhMyZshStep`, `BrewPackagesStep`) proceed normally — their `Apply()` method does not depend on `cfg.Apply`.
+
+For batch steps in the nil-command path, the executor MUST call `s.Apply(cfg)` exactly once for the entire batch (NOT per-item). The implementation is expected to iterate `cfg.Items` internally; the returned `StepResult.ItemResults` is used as authoritative. The Verify phase is NOT run for the nil-command batch path — verification is delegated to the implementation (built-in batch impls using `batchApply` perform per-item verify internally).
+
+Rationale: the Check phase invokes `s.Check(cfg)` unconditionally; the Apply and Verify phases are now aligned to the same pattern. Previous behavior — short-circuiting to `StatusSkipped` (atomic) or per-item `StatusFailed` (batch) when no command was resolved — was asymmetric and silently broke built-in implementations whose command logic lives in Go code rather than in the StepConfig.
 
 ### Verify Phase
 
-The Verify phase re-executes the same Check logic used in the Check phase. The same `CheckTimeout` applies. If the step has no `Check` command (i.e., `cfg.Check` is nil for a `ShellStep`), the executor MUST treat Verify as failed and return `StatusVerifyFailed`.
+The Verify phase re-executes the step's Check by invoking `s.Check(cfg)`. The same `CheckTimeout` applies. The step implementation decides how to handle a nil `cfg.Check` — `ShellStep` returns `StatusFailed` (treated as verify-failed by the executor); built-in implementations with their own check logic proceed.
 
 `StatusVerifyFailed` MUST NOT trigger a retry. It is a terminal outcome.
 
@@ -249,6 +261,12 @@ type StepResult struct {
     Status   StepStatus
     Reason   string // MUST be set when Status is StatusSkipped, StatusFailed, or StatusVerifyFailed
 
+    // Output is the combined stdout+stderr captured from the subprocess
+    // invoked by the step implementation (if any). Step implementations
+    // MUST populate Output on the failure path so the runner can write a
+    // useful log file; the runner falls back to Reason when Output is empty.
+    Output string
+
     // ItemResults is populated only for batch steps.
     // Each entry corresponds to a StepItem at the same index in cfg.Items.
     ItemResults []ItemResult
@@ -262,6 +280,7 @@ type ItemResult struct {
     Item   StepItem
     Status StepStatus // MUST be one of: StatusSatisfied, StatusApplied, StatusFailed
     Reason string     // MUST be populated when Status is StatusFailed
+    Output string     // per-item subprocess output (combined stdout+stderr)
 }
 ```
 
