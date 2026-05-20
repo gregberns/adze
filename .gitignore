@@ -8,3 +8,6 @@
 .kerf/
 !.kerf/project-identifier
 .claude/worktrees/
+
+# Personal machine configs (kept in private gists, not the repo)
+examples/greg-berns.yaml
