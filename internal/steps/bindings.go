@@ -2,6 +2,7 @@ package steps
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -9,35 +10,145 @@ import (
 	"github.com/gregberns/adze/internal/step"
 )
 
-// BuildStepConfigs takes a parsed Config and produces StepConfigs for all applicable
-// built-in steps plus custom steps.
+// BuildStepConfigs takes a parsed Config and produces StepConfigs per the
+// Step Inclusion Rule (specs/step-library.md): a built-in step is included
+// iff (a) its ConfigSection predicate is satisfied, or (b) some other
+// included step transitively Requires one of its Provides capabilities.
 //
-// The function:
-// 1. Iterates all steps in the registry that match the platform
-// 2. For each step, creates a StepConfig with the right Items from config sections
-// 3. Adds custom steps from cfg.CustomSteps
-// 4. Sets default timeouts (5min check, 15min apply)
-// 5. Filters out batch steps with empty config sections (no items = skip)
+// Phase 1: built-in steps with a non-empty ConfigSection are evaluated;
+// those whose section predicate is satisfied become seeds.
+// Phase 2: custom steps are added as seeds.
+// Phase 3: transitive-only candidates (built-in steps with empty
+// ConfigSection) are pulled in iff something in the seed set requires
+// one of their capabilities. See expandCandidates for the algorithm.
 func BuildStepConfigs(cfg *config.Config, platform string, reg *Registry) []step.StepConfig {
-	var result []step.StepConfig
+	defs := reg.ForPlatform(platform)
 
-	for _, def := range reg.ForPlatform(platform) {
-		sc := buildStepConfig(cfg, platform, def)
-		if sc == nil {
-			continue
+	var seeds []step.StepConfig
+	var candidates []StepDefinition
+
+	// A step is a seed iff its config-section predicate is satisfied
+	// (buildStepConfig returns non-nil). All other defs are eligible
+	// candidates for transitive inclusion.
+	for _, def := range defs {
+		if !isCandidate(def) {
+			sc := buildStepConfig(cfg, platform, def)
+			if sc != nil {
+				seeds = append(seeds, *sc)
+				continue
+			}
 		}
-		result = append(result, *sc)
+		candidates = append(candidates, def)
 	}
 
-	// Add custom steps.
 	for name, cs := range cfg.CustomSteps {
 		sc := buildCustomStepConfig(name, cs, platform)
 		if sc != nil {
-			result = append(result, *sc)
+			seeds = append(seeds, *sc)
 		}
 	}
 
-	return result
+	return expandCandidates(seeds, candidates, platform, cfg)
+}
+
+// isCandidate reports whether a built-in step is "transitive-only" —
+// eligible for inclusion only when another included step requires one
+// of its Provides capabilities. Per specs/step-library.md, this is
+// exactly the set of steps with no ConfigSection.
+func isCandidate(def StepDefinition) bool {
+	return def.ConfigSection == ""
+}
+
+// expandCandidates performs fixed-point transitive expansion of candidate
+// steps over the given seed set. See specs/dag-resolver.md "Pre-Resolution:
+// Candidate Expansion" for the formal algorithm.
+//
+// Determinism: candidates are iterated in sorted name order; Requires
+// lists are iterated in input order. Re-running on identical inputs
+// produces identical output.
+func expandCandidates(seeds []step.StepConfig, candidates []StepDefinition, platform string, cfg *config.Config) []step.StepConfig {
+	sortedCands := make([]StepDefinition, len(candidates))
+	copy(sortedCands, candidates)
+	sort.Slice(sortedCands, func(i, j int) bool {
+		return sortedCands[i].Name < sortedCands[j].Name
+	})
+
+	included := make([]step.StepConfig, len(seeds))
+	copy(included, seeds)
+
+	providedBy := make(map[string]string)
+	addedNames := make(map[string]bool)
+	for _, sc := range included {
+		addedNames[sc.Name] = true
+		for _, cap := range sc.Provides {
+			providedBy[cap] = sc.Name
+		}
+	}
+
+	for {
+		changed := false
+		snapshot := make([]step.StepConfig, len(included))
+		copy(snapshot, included)
+
+		for _, sc := range snapshot {
+			for _, req := range sc.Requires {
+				if _, satisfied := providedBy[req]; satisfied {
+					continue
+				}
+				for _, cand := range sortedCands {
+					if addedNames[cand.Name] {
+						continue
+					}
+					if !containsCapability(cand.Provides, req) {
+						continue
+					}
+					newSC := buildCandidateStepConfig(cfg, platform, cand)
+					if newSC == nil {
+						continue
+					}
+					included = append(included, *newSC)
+					addedNames[cand.Name] = true
+					for _, cap := range cand.Provides {
+						providedBy[cap] = cand.Name
+					}
+					changed = true
+					break
+				}
+			}
+		}
+
+		if !changed {
+			break
+		}
+	}
+
+	return included
+}
+
+func containsCapability(provides []string, cap string) bool {
+	for _, p := range provides {
+		if p == cap {
+			return true
+		}
+	}
+	return false
+}
+
+// buildCandidateStepConfig constructs a StepConfig for a transitive-only
+// step. Mirrors buildStepConfig's default shape but always routes through
+// populateBuiltinCommands since candidates have no config section.
+func buildCandidateStepConfig(cfg *config.Config, platform string, def StepDefinition) *step.StepConfig {
+	sc := &step.StepConfig{
+		Name:         def.Name,
+		Description:  def.Description,
+		Provides:     def.Provides,
+		Requires:     def.RequiresForPlatform(platform),
+		Platforms:    def.Platforms,
+		CheckTimeout: 5 * time.Minute,
+		ApplyTimeout: 15 * time.Minute,
+	}
+	populateBuiltinCommands(sc, def, platform, cfg)
+	return sc
 }
 
 // buildStepConfig creates a StepConfig for a built-in step definition,
@@ -118,23 +229,23 @@ func buildStepConfig(cfg *config.Config, platform string, def StepDefinition) *s
 			hostname, hostname, hostname))
 
 	case "identity":
-		if cfg.Identity.GitName == "" && cfg.Identity.GitEmail == "" {
+		if cfg.Identity.GitName == "" && cfg.Identity.GitEmail == "" && cfg.Identity.GithubUser == "" {
 			return nil
 		}
 		sc.Check = buildGitConfigCheck(cfg.Identity)
 		sc.Apply = buildGitConfigApply(cfg.Identity)
+
+	case "identity.generate_ssh_key":
+		if !cfg.Identity.GenerateSSHKey {
+			return nil
+		}
+		populateBuiltinCommands(sc, def, platform, cfg)
 
 	case "directories":
 		if len(cfg.Directories) == 0 {
 			return nil
 		}
 		sc.Items = directoriesToItems(cfg.Directories)
-
-	case "":
-		// Steps with no config section (core infra, languages, ssh-keys)
-		// are included if they are required by other steps, or always included.
-		// We include them so the DAG can resolve dependencies.
-		populateBuiltinCommands(sc, def, platform, cfg)
 	}
 
 	return sc
@@ -180,10 +291,6 @@ func populateBuiltinCommands(sc *step.StepConfig, def StepDefinition, platform s
 	case "rust":
 		sc.Check = shellCmd("command -v rustc")
 		sc.Apply = shellCmd(`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y`)
-
-	case "oh-my-zsh":
-		sc.Check = shellCmd(`[ -d "$HOME/.oh-my-zsh" ]`)
-		sc.Apply = shellCmd(`sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended`)
 
 	case "ssh-keys":
 		sc.Check = shellCmd(`[ -f "$HOME/.ssh/id_ed25519" ]`)

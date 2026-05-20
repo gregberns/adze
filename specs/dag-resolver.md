@@ -13,6 +13,61 @@ The resolver receives a list of `Step` objects from the merged configuration. Ea
 
 Before graph construction, steps are filtered to those matching the current runtime platform.
 
+## Pre-Resolution: Candidate Expansion
+
+The DAG resolver assumes a **closed set** of required steps: every capability listed in some step's `Requires` MUST be provided by another step in the input set, or the resolver reports an unresolved-dependency error.
+
+Callers therefore MUST expand transitive candidates **before** invoking `Resolve()`. Candidate expansion implements condition 2 of the Step Inclusion Rule (`specs/step-library.md`).
+
+The algorithm operates on two inputs:
+- `seeds`: step configs that satisfy condition 1 of the inclusion rule (config-gated, or user-defined custom steps).
+- `candidates`: step definitions eligible for transitive inclusion — those whose config-section predicate is not satisfied (this includes all `ConfigSection == ""` steps and any config-gated step whose gate is closed).
+
+### Algorithm (fixed-point)
+
+```
+included := copy(seeds)
+providedBy := {}            // capability → step name
+addedNames := {}            // step name → bool
+for sc in included:
+    addedNames[sc.Name] := true
+    for cap in sc.Provides:
+        providedBy[cap] := sc.Name
+
+sortedCands := sort(candidates, by Name)
+
+loop:
+    changed := false
+    snapshot := copy(included)
+    for sc in snapshot:
+        for req in sc.Requires:    // already platform-resolved
+            if req in providedBy: continue
+            for cand in sortedCands:
+                if addedNames[cand.Name]: continue
+                if req not in cand.Provides: continue
+                new_sc := build_step_config(cand, platform, cfg)
+                // new_sc.Requires := cand.RequiresForPlatform(platform)
+                included += new_sc
+                addedNames[cand.Name] := true
+                for cap in cand.Provides:
+                    providedBy[cap] := cand.Name
+                changed := true
+                break
+    if not changed: break
+
+return included
+```
+
+### Determinism Guarantees
+
+- Candidates are iterated in sorted name order.
+- A step's `Requires` is iterated in input order (preserves authoring intent for custom steps).
+- The algorithm is idempotent: re-running on its own output produces the same set.
+
+### Unresolved After Expansion
+
+If a `Requires` capability is satisfied by neither a seed nor any candidate, expansion leaves it unresolved. The DAG resolver subsequently reports the error using its existing format (see "Unresolved Dependency" below).
+
 ## Graph Construction
 
 1. For each step S, for each capability C in S.Provides: register C → S in a provides-map.

@@ -258,29 +258,44 @@ Before executing, this step MUST check for the `dockutil` binary (`command -v do
 | Requires | — |
 | Platforms | any |
 | Type | atomic |
+| Config section | `identity.generate_ssh_key` |
+| Gating | config-gated (also eligible for transitive inclusion) |
 | Check | `[ -f "$HOME/.ssh/id_ed25519" ]` (or configured key type) |
 | Apply | `ssh-keygen -t ed25519 -C "<email>" -f "$HOME/.ssh/id_ed25519" -N ""` |
 
-The SSH key generation uses an empty passphrase by default. If the `SSH_PASSPHRASE` secret is configured and available, it is used as the passphrase.
+The SSH key generation uses an empty passphrase by default. If the `SSH_PASSPHRASE` secret is configured and available, it is used as the passphrase. The step runs when `identity.generate_ssh_key: true` is set in the user's config, or when another step transitively requires the `ssh-keys` capability.
 
 ## Config Section Bindings
 
-| Step | Reads From |
-|------|-----------|
-| brew-packages | `config.packages.brew[]` |
-| brew-casks | `config.packages.cask[]` |
-| apt-packages | `config.packages.apt[]` |
-| macos-defaults | `config.defaults{}` |
-| gsettings | `config.defaults{}` |
-| dock-layout | `config.dock{}` |
-| git-config | `config.identity{}` |
-| directories | `config.directories[]` |
-| shell-default | `config.shell.default` |
-| oh-my-zsh | `config.shell.oh_my_zsh` |
-| zsh-plugins | `config.shell.plugins[]` |
-| machine-name | `config.machine.hostname` |
+| Step | Reads From | Predicate |
+|------|-----------|-----------|
+| brew-packages | `config.packages.brew[]` | non-empty list |
+| brew-casks | `config.packages.cask[]` | non-empty list |
+| apt-packages | `config.packages.apt[]` | non-empty list |
+| macos-defaults | `config.defaults{}` | non-empty map |
+| gsettings | `config.defaults{}` | non-empty map |
+| dock-layout | `config.dock.apps[]` | non-empty list |
+| git-config | `config.identity{}` | any of `git_name`/`git_email`/`github_user` non-empty |
+| directories | `config.directories[]` | non-empty list |
+| shell-default | `config.shell.default` | non-empty string |
+| oh-my-zsh | `config.shell.oh_my_zsh` | `true` |
+| zsh-plugins | `config.shell.plugins[]` | non-empty list |
+| machine-name | `config.machine.hostname` | non-empty string |
+| ssh-keys | `config.identity.generate_ssh_key` | `true` |
 
-Steps not listed above (xcode-cli-tools, homebrew, apt-essentials, language steps) are included automatically when another step requires their capabilities.
+Steps not listed above — `xcode-cli-tools`, `homebrew`, `apt-essentials`, `node-fnm`, `python`, `go`, `rust` — have no config binding and are **transitive-only**: they are included via condition 2 of the Step Inclusion Rule below.
+
+## Step Inclusion Rule
+
+A built-in step is included in a plan if and only if at least one of the following conditions holds:
+
+1. **Config-gated inclusion.** The step appears in the Config Section Bindings table above AND its per-section gating predicate is satisfied by the user's config.
+
+2. **Transitive inclusion.** Some other included step's platform-resolved `Requires` list (see `RequiresForPlatform` semantics) contains a capability listed in this step's `Provides`. Transitive inclusion is fixed-point: a step pulled in transitively may in turn pull in further steps.
+
+Steps satisfying neither condition MUST NOT appear in the plan.
+
+Implementers MUST apply this rule **before** invoking the DAG resolver. The resolver assumes a closed set of required steps and reports any unresolved `Requires` capability as an unresolved-dependency error. The pre-resolution candidate-expansion algorithm is specified in `specs/dag-resolver.md` under "Pre-Resolution: Candidate Expansion".
 
 ## Discoverability
 

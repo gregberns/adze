@@ -86,6 +86,8 @@ This behavior is distinct from failure-induced skips, which DO block downstream 
 | Atomic | xcode-cli-tools, homebrew, apt-essentials, node-fnm, python, go, rust, oh-my-zsh, shell-default, machine-name, git-config, ssh-keys |
 | Batch | brew-packages, brew-casks, apt-packages, macos-defaults, gsettings, dock-layout, directories, zsh-plugins |
 
+Note: this table classifies steps by execution type (atomic vs. batch) only; whether a given step appears in a plan is governed by the Step Inclusion Rule in `specs/step-library.md`. In particular, `ssh-keys` is config-gated on `identity.generate_ssh_key`; transitive-only steps (`xcode-cli-tools`, `homebrew`, `apt-essentials`, `node-fnm`, `python`, `go`, `rust`) appear only when transitively required.
+
 ## Failure Propagation
 
 When a step fails (result is `failed` or all items in a batch failed):

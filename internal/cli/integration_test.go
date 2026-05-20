@@ -123,8 +123,9 @@ func TestIntegration_AllBuiltinStepsHaveCommands(t *testing.T) {
 		},
 		Directories: []string{"~/Projects"},
 		Identity: config.IdentityConfig{
-			GitName:  "Test User",
-			GitEmail: "test@example.com",
+			GitName:        "Test User",
+			GitEmail:       "test@example.com",
+			GenerateSSHKey: true,
 		},
 		Machine: config.MachineConfig{
 			Hostname: "test-machine",
@@ -185,9 +186,17 @@ func TestIntegration_AllBuiltinStepsHaveCommands(t *testing.T) {
 // TestIntegration_PlatformApplyDispatch verifies that steps using PlatformApply
 // have the correct platform-specific apply commands for both darwin and ubuntu.
 func TestIntegration_PlatformApplyDispatch(t *testing.T) {
+	// Per the Step Inclusion Rule, language steps are transitive-only.
+	// Pull node-fnm, python, go in via custom steps that require their
+	// capabilities, then verify their PlatformApply commands are populated.
 	cfg := &config.Config{
 		Name:     "platform-test",
 		Platform: "any",
+		CustomSteps: map[string]config.CustomStep{
+			"needs-node":   {Description: "needs node", Provides: []string{"needs-node"}, Requires: []string{"node"}, Platform: []string{"any"}, Check: "true", Apply: map[string]string{"any": "echo"}},
+			"needs-python": {Description: "needs py", Provides: []string{"needs-python"}, Requires: []string{"python"}, Platform: []string{"any"}, Check: "true", Apply: map[string]string{"any": "echo"}},
+			"needs-go":     {Description: "needs go", Provides: []string{"needs-go"}, Requires: []string{"go"}, Platform: []string{"any"}, Check: "true", Apply: map[string]string{"any": "echo"}},
+		},
 	}
 
 	reg := steps.NewRegistry()

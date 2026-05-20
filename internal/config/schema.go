@@ -24,9 +24,10 @@ type MachineConfig struct {
 
 // IdentityConfig holds git and GitHub identity settings.
 type IdentityConfig struct {
-	GitName    string `yaml:"git_name"`
-	GitEmail   string `yaml:"git_email"`
-	GithubUser string `yaml:"github_user"`
+	GitName        string `yaml:"git_name"`
+	GitEmail       string `yaml:"git_email"`
+	GithubUser     string `yaml:"github_user"`
+	GenerateSSHKey bool   `yaml:"generate_ssh_key"`
 }
 
 // SecretEntry declares a required environment variable.

@@ -36,11 +36,13 @@ func TestBuildStepConfigsMinimal(t *testing.T) {
 		}
 	}
 
-	// Core infrastructure steps should always be present (on darwin).
+	// Per the Step Inclusion Rule (specs/step-library.md), core infrastructure
+	// steps are transitive-only — they must NOT appear in a minimal config
+	// where nothing requires them.
 	names := stepConfigNames(configs)
-	for _, expected := range []string{"xcode-cli-tools", "homebrew"} {
-		if !names[expected] {
-			t.Errorf("expected step %q in minimal darwin config", expected)
+	for _, forbidden := range []string{"xcode-cli-tools", "homebrew"} {
+		if names[forbidden] {
+			t.Errorf("step %q must NOT appear in minimal darwin config (no step requires it)", forbidden)
 		}
 	}
 }

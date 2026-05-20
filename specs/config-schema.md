@@ -255,9 +255,10 @@ Duplicate detection is case-sensitive and does not expand tildes for comparison.
 
 ```
 IdentityConfig
-  git_name      string    optional
-  git_email     string    optional
-  github_user   string    optional
+  git_name           string    optional
+  git_email          string    optional
+  github_user        string    optional
+  generate_ssh_key   bool      optional, default false
 ```
 
 Omitting `identity` entirely is valid. All fields are individually optional. No cross-field validation is performed at the schema level — behavioral constraints belong to the git-config built-in step spec.
@@ -282,6 +283,14 @@ Omitting `identity` entirely is valid. All fields are individually optional. No 
 - Required: no
 - Constraints: MUST NOT be empty if the key is present; MUST NOT contain whitespace characters
 - Validation error: `identity.github_user: must not be empty if present` / `identity.github_user: must not contain whitespace`
+
+**`identity.generate_ssh_key`**
+- Go type: `bool`
+- Required: no
+- Default: `false`
+- Constraints: none
+- Description: when `true`, the `ssh-keys` built-in step is included in the plan and generates an Ed25519 SSH key pair at `$HOME/.ssh/id_ed25519` if none exists. The key comment is set to `identity.git_email` when present. When `false` (default), the `ssh-keys` step is included only if another step transitively requires the `ssh-keys` capability. YAML 1.1 boolean strings (`yes`/`no`/`on`/`off`) are rejected as type-mismatch errors per the YAML 1.2 strict-mode parsing rules above.
+- Validation error: `identity.generate_ssh_key: expected bool, got null` (when YAML null is provided)
 
 ---
 

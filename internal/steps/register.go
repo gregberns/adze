@@ -249,13 +249,14 @@ func registerAll(r *Registry) {
 	})
 
 	r.Register(StepDefinition{
-		Name:        "ssh-keys",
-		Description: "Generate SSH keys",
-		Category:    "generic",
-		Type:        "atomic",
-		Platforms:   []string{"any"},
-		Provides:    []string{"ssh-keys"},
-		Requires:    nil,
-		Constructor: func() step.Step { return NewSSHKeysStep() },
+		Name:          "ssh-keys",
+		Description:   "Generate SSH keys",
+		Category:      "generic",
+		Type:          "atomic",
+		Platforms:     []string{"any"},
+		Provides:      []string{"ssh-keys"},
+		Requires:      nil,
+		ConfigSection: "identity.generate_ssh_key",
+		Constructor:   func() step.Step { return NewSSHKeysStep() },
 	})
 }

@@ -249,9 +249,16 @@ func parseIdentity(node *yaml.Node, cfg *Config, errs *[]ValidationError, warns 
 			} else {
 				cfg.Identity.GithubUser = val.Value
 			}
+		case "generate_ssh_key":
+			if val.Tag == "!!null" {
+				*errs = append(*errs, newError(E042, "identity.generate_ssh_key",
+					"identity.generate_ssh_key: expected bool, got null"))
+			} else {
+				cfg.Identity.GenerateSSHKey = val.Value == "true"
+			}
 		default:
 			*errs = append(*errs, newError(E043, "identity."+key,
-				fmt.Sprintf("identity.%s: unknown field; valid fields are: git_name, git_email, github_user", key)))
+				fmt.Sprintf("identity.%s: unknown field; valid fields are: git_name, git_email, github_user, generate_ssh_key", key)))
 		}
 	}
 }
