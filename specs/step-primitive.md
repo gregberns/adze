@@ -409,6 +409,16 @@ When executing a command, the executor MUST merge the following into the process
 
 Merged environment MUST NOT persist beyond the lifetime of the single command invocation.
 
+### Subprocess Standard Streams
+
+The executor (`RunCommand`) MUST capture subprocess stdout and stderr to in-memory buffers so the results are available on `ExecResult.Stdout` / `Stderr` and via `CombineOutput`.
+
+When the context carries a stream writer (set via `ContextWithStreamWriter`), `RunCommand` MUST tee both stdout and stderr to that writer in addition to the capture buffers. This allows the apply command in TTY mode to surface real-time subprocess output to the user.
+
+When the context carries a stdin reader (set via `ContextWithStdin`), `RunCommand` MUST attach that reader as the subprocess's stdin. Otherwise stdin MUST be left nil (the `os/exec` default; reads return EOF immediately). This split allows the apply command to forward `os.Stdin` in interactive TTY mode — so commands like `gh auth login` or `git clone` that read user input work correctly — while JSON mode and non-TTY runs keep subprocesses prompt-free.
+
+Steps run serially within a single Runner; no two subprocesses contend for stdin simultaneously.
+
 ### Process Lifecycle on Timeout
 
 When a timeout fires:

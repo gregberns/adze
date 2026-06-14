@@ -360,6 +360,47 @@ func TestZshPluginsBatch(t *testing.T) {
 	}
 }
 
+// TestZshPlugins_GitTerminalPromptDisabled verifies that the apply command
+// emitted by ZshPluginsStep sets GIT_TERMINAL_PROMPT=0 so a missing or
+// auth-required repo URL fails fast instead of hanging on a credential
+// prompt. The hang was Bug B reported on fresh-Mac apply.
+func TestZshPlugins_GitTerminalPromptDisabled(t *testing.T) {
+	var seenApplyCmds []string
+	capturingRunner := func(ctx context.Context, cmd *step.ShellCommand, env []string, stepName, phase string) (step.ExecResult, error) {
+		if phase == "apply" && len(cmd.Args) >= 3 {
+			// shellCmd wraps as sh -c <command>; the third arg is the script.
+			seenApplyCmds = append(seenApplyCmds, cmd.Args[2])
+		}
+		// Return non-zero for check so apply runs; return 0 for apply and verify-check.
+		if phase == "check" && len(seenApplyCmds) == 0 {
+			return step.ExecResult{ExitCode: 1}, nil
+		}
+		return step.ExecResult{ExitCode: 0}, nil
+	}
+	s := &ZshPluginsStep{run: capturingRunner}
+	cfg := step.StepConfig{
+		Items: []step.StepItem{
+			{Name: "zsh-syntax-highlighting"},
+			{Name: "some-unknown-plugin"},
+		},
+	}
+	_, err := s.Apply(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(seenApplyCmds) == 0 {
+		t.Fatalf("expected at least one apply command to be captured")
+	}
+	for _, c := range seenApplyCmds {
+		if !strings.Contains(c, "GIT_TERMINAL_PROMPT=0") {
+			t.Errorf("apply command missing GIT_TERMINAL_PROMPT=0: %q", c)
+		}
+		if !strings.Contains(c, "git clone") {
+			t.Errorf("apply command missing 'git clone': %q", c)
+		}
+	}
+}
+
 func TestPluginRepoURL(t *testing.T) {
 	tests := []struct {
 		name string

@@ -79,7 +79,12 @@ func (s *ZshPluginsStep) Apply(ctx context.Context, cfg step.StepConfig) (step.S
 				// Unknown plugin — attempt a reasonable default URL
 				repoURL = fmt.Sprintf("https://github.com/zsh-users/%s.git", item.Name)
 			}
-			return fmt.Sprintf(`git clone %s "$HOME/.oh-my-zsh/custom/plugins/%s"`, repoURL, item.Name)
+			// GIT_TERMINAL_PROMPT=0 makes git fail fast on credential or
+			// host-key prompts instead of hanging waiting on stdin. This
+			// matters for the unknown-plugin fallback URL above: a 404 or
+			// auth-required HTTPS URL would otherwise prompt for a
+			// username/password on the inherited tty.
+			return fmt.Sprintf(`GIT_TERMINAL_PROMPT=0 git clone %s "$HOME/.oh-my-zsh/custom/plugins/%s"`, repoURL, item.Name)
 		},
 	)
 }

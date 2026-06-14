@@ -54,6 +54,58 @@ func TestRunCommand_NoStreamWriter(t *testing.T) {
 	}
 }
 
+// TestRunCommand_StdinPassthrough verifies that when a stdin reader is
+// attached to the context, RunCommand feeds it to the subprocess as stdin.
+// Without this, interactive commands (gh auth login, git credential prompts)
+// would read EOF and fail or hang.
+func TestRunCommand_StdinPassthrough(t *testing.T) {
+	in := strings.NewReader("hello world\n")
+	ctx := ContextWithStdin(context.Background(), in)
+
+	cmd := &ShellCommand{Args: []string{"cat"}}
+	result, err := RunCommand(ctx, cmd, nil, "test", "apply")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Errorf("ExitCode = %d, want 0; stderr=%q", result.ExitCode, result.Stderr)
+	}
+	if !strings.Contains(result.Stdout, "hello world") {
+		t.Errorf("ExecResult.Stdout missing 'hello world': %q", result.Stdout)
+	}
+}
+
+// TestRunCommand_NoStdin verifies that without a stdin reader in context,
+// subprocess stdin is nil (reads return EOF immediately) — the pre-existing
+// default behavior.
+func TestRunCommand_NoStdin(t *testing.T) {
+	ctx := context.Background()
+	// `cat` with no stdin should exit 0 immediately on EOF.
+	cmd := &ShellCommand{Args: []string{"cat"}}
+	result, err := RunCommand(ctx, cmd, nil, "test", "apply")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Errorf("ExitCode = %d, want 0", result.ExitCode)
+	}
+	if result.Stdout != "" {
+		t.Errorf("expected empty stdout, got %q", result.Stdout)
+	}
+}
+
+// TestStdinFromContext_Nil verifies nil-safety mirroring stream writer.
+func TestStdinFromContext_Nil(t *testing.T) {
+	ctx := context.Background()
+	if r := StdinFromContext(ctx); r != nil {
+		t.Errorf("expected nil reader for empty context, got %T", r)
+	}
+	ctx2 := ContextWithStdin(ctx, nil)
+	if r := StdinFromContext(ctx2); r != nil {
+		t.Errorf("expected nil reader after setting nil, got %T", r)
+	}
+}
+
 // TestStreamWriterFromContext_Nil verifies nil writer returns nil.
 func TestStreamWriterFromContext_Nil(t *testing.T) {
 	ctx := context.Background()

@@ -204,6 +204,14 @@ func applyWithProgress(ctx context.Context, w io.Writer, r *runner.Runner, graph
 	// install progress, sudo password prompts) is visible in real time.
 	r.StreamWriter = progress.StreamWriter()
 
+	// In interactive TTY mode, forward stdin to subprocesses so commands
+	// like `gh auth login` (device-code confirmation) and `git clone`
+	// (credential prompts) can read user input. JSON mode and non-TTY
+	// runs leave r.Stdin nil so subprocess reads return EOF immediately.
+	if tty {
+		r.Stdin = os.Stdin
+	}
+
 	// Wire Runner callbacks to drive live progress display.
 	r.OnStepStart = func(stepName string, index int, total int) {
 		progress.StartStep(stepName)

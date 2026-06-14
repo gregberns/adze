@@ -51,6 +51,13 @@ type Runner struct {
 	// for the log file). Used by the apply command in TTY/non-TTY mode;
 	// left nil in JSON mode.
 	StreamWriter io.Writer
+
+	// Stdin, if non-nil, is attached to each step's context so the step's
+	// subprocesses inherit it as their stdin. Used by the apply command in
+	// interactive TTY mode (set to os.Stdin) so commands like `gh auth
+	// login` and `git clone` can read user input. Left nil in JSON mode
+	// and in non-TTY runs, where subprocess stdin is nil (reads return EOF).
+	Stdin io.Reader
 }
 
 // RunResult holds the outcome of a full graph execution.
@@ -174,8 +181,11 @@ func (r *Runner) Run(ctx context.Context) *RunResult {
 
 		// Execute the step. If a StreamWriter is configured, derive a
 		// per-step context carrying it so the subprocesses tee their
-		// output to the terminal in real time.
+		// output to the terminal in real time. If a Stdin reader is
+		// configured, also derive a context that forwards stdin so
+		// interactive subprocesses can read from the user.
 		stepCtx := step.ContextWithStreamWriter(ctx, r.StreamWriter)
+		stepCtx = step.ContextWithStdin(stepCtx, r.Stdin)
 
 		var result step.StepResult
 		var err error

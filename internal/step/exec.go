@@ -87,6 +87,16 @@ func RunCommand(ctx context.Context, cmd *ShellCommand, stepEnv []string, stepNa
 		c.Stderr = &stderr
 	}
 
+	// Attach stdin if the context carries a reader. Without this, the
+	// subprocess inherits a nil stdin and any read returns EOF — which
+	// causes interactive commands like `gh auth login` or `git clone`
+	// (when it prompts for credentials) to fail or hang. In interactive
+	// `adze apply`, the CLI wires `os.Stdin` via the Runner; in JSON
+	// mode and non-TTY runs, this stays nil so prompts fail fast.
+	if stdinR := StdinFromContext(ctx); stdinR != nil {
+		c.Stdin = stdinR
+	}
+
 	err := c.Start()
 	if err != nil {
 		return ExecResult{
