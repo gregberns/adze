@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -74,9 +75,17 @@ func RunCommand(ctx context.Context, cmd *ShellCommand, stepEnv []string, stepNa
 	}
 	c.Env = env
 
+	// Capture subprocess output to buffers (used by ExecResult and the log
+	// writer). If a stream writer is set on the context, tee output to it
+	// in real time so the user sees progress and any interactive prompts.
 	var stdout, stderr bytes.Buffer
-	c.Stdout = &stdout
-	c.Stderr = &stderr
+	if streamW := StreamWriterFromContext(ctx); streamW != nil {
+		c.Stdout = io.MultiWriter(&stdout, streamW)
+		c.Stderr = io.MultiWriter(&stderr, streamW)
+	} else {
+		c.Stdout = &stdout
+		c.Stderr = &stderr
+	}
 
 	err := c.Start()
 	if err != nil {

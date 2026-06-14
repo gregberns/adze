@@ -11,6 +11,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -44,6 +45,12 @@ type Runner struct {
 	// result carries the status, skip reason, duration, and per-item results.
 	// If nil, the callback is not invoked.
 	OnStepComplete func(stepName string, index int, total int, result step.StepResult)
+
+	// StreamWriter, if non-nil, is attached to each step's context so the
+	// step's subprocesses tee stdout+stderr to it (in addition to capturing
+	// for the log file). Used by the apply command in TTY/non-TTY mode;
+	// left nil in JSON mode.
+	StreamWriter io.Writer
 }
 
 // RunResult holds the outcome of a full graph execution.
@@ -165,14 +172,18 @@ func (r *Runner) Run(ctx context.Context) *RunResult {
 			cfg = buildStepConfig(rs)
 		}
 
-		// Execute the step.
+		// Execute the step. If a StreamWriter is configured, derive a
+		// per-step context carrying it so the subprocesses tee their
+		// output to the terminal in real time.
+		stepCtx := step.ContextWithStreamWriter(ctx, r.StreamWriter)
+
 		var result step.StepResult
 		var err error
 
 		if cfg.Items != nil {
-			result, err = step.ExecuteBatchStep(ctx, s, cfg, r.platform, envChecker)
+			result, err = step.ExecuteBatchStep(stepCtx, s, cfg, r.platform, envChecker)
 		} else {
-			result, err = step.ExecuteStep(ctx, s, cfg, r.platform, envChecker)
+			result, err = step.ExecuteStep(stepCtx, s, cfg, r.platform, envChecker)
 		}
 
 		if err != nil {

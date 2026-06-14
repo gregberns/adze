@@ -180,3 +180,86 @@ func TestProgressFinish(t *testing.T) {
 	// Finish should not panic even if called without steps.
 	p.Finish()
 }
+
+// TestProgress_StreamWriter_SilentStep verifies that a step which writes nothing
+// to the stream writer still produces the compact single-line output (no header).
+func TestProgress_StreamWriter_SilentStep(t *testing.T) {
+	var buf bytes.Buffer
+	p := NewProgress(&buf, 1, false, false) // non-TTY for deterministic output
+
+	p.StartStep("git-config")
+	_ = p.StreamWriter() // obtain writer but never write to it
+	p.CompleteStep("git-config", "success", "", 0)
+
+	out := buf.String()
+	if strings.Contains(out, "[1/1] git-config\n") && strings.Contains(out, "└─") {
+		t.Errorf("silent step should not produce header + indented status; got: %q", out)
+	}
+	// Should contain a single result line.
+	if !strings.Contains(out, "git-config") {
+		t.Errorf("output missing step name: %q", out)
+	}
+}
+
+// TestProgress_StreamWriter_NonTTY verifies that StreamWriter in non-TTY mode
+// returns a writer that streams directly without header coordination.
+func TestProgress_StreamWriter_NonTTY(t *testing.T) {
+	var buf bytes.Buffer
+	p := NewProgress(&buf, 1, false, false)
+	p.StartStep("step-name")
+	sw := p.StreamWriter()
+	sw.Write([]byte("subprocess output\n"))
+	// Non-TTY returns os.Stdout directly, not the coordinated wrapper.
+	// So the buf will NOT contain the subprocess output (it went to stdout).
+	// What matters is that the StreamWriter call didn't break the existing
+	// completion path.
+	p.CompleteStep("step-name", "success", "", 0)
+
+	out := buf.String()
+	if !strings.Contains(out, "step-name") {
+		t.Errorf("output missing step name: %q", out)
+	}
+}
+
+// TestProgress_StreamWriter_FirstByteCommitsHeader verifies that the first
+// Write to the stream writer commits the header line "[N/M] step-name" once
+// and that subsequent writes flow through without re-committing. This is the
+// central UX mechanism that prevents the spinner from hiding subprocess output.
+func TestProgress_StreamWriter_FirstByteCommitsHeader(t *testing.T) {
+	var buf bytes.Buffer
+	p := NewProgress(&buf, 1, false, true) // TTY mode
+
+	p.StartStep("brew-casks")
+	sw := p.StreamWriter()
+
+	// Give the spinner a tick or two to write something so we know it's
+	// running before the first Write to the stream writer.
+	time.Sleep(150 * time.Millisecond)
+
+	sw.Write([]byte("downloading...\n"))
+	sw.Write([]byte("installing...\n"))
+
+	p.CompleteStep("brew-casks", "success", "", 0)
+
+	out := buf.String()
+
+	// Header must appear exactly once.
+	if got := strings.Count(out, "[1/1] brew-casks\n"); got != 1 {
+		t.Errorf("expected header exactly once, got %d times. Output:\n%s", got, out)
+	}
+	// Streamed bytes must be present.
+	if !strings.Contains(out, "downloading...") {
+		t.Errorf("missing first streamed line: %q", out)
+	}
+	if !strings.Contains(out, "installing...") {
+		t.Errorf("missing second streamed line: %q", out)
+	}
+	// Completion line should use the indented form because streaming happened.
+	if !strings.Contains(out, "└─") {
+		t.Errorf("expected indented completion line (└─); got %q", out)
+	}
+	// wasStreamed should report true.
+	if !p.wasStreamed() {
+		t.Error("Progress.wasStreamed() should be true after streaming")
+	}
+}

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -131,6 +132,35 @@ func runApply(cmd *cobra.Command, args []string) error {
 	// skipped; other steps proceed normally. The runner's EnvChecker
 	// callback (via makeEnvChecker) handles per-step skipping.
 
+	// 6.5. Sudo pre-flight warning. Surface any known sudo-requiring steps
+	// before sudo is acquired, so the user has a chance to abort if they
+	// aren't ready for a password prompt.
+	sudoNotices := steps.SudoStepsForConfig(cfg)
+	if len(sudoNotices) > 0 {
+		fmt.Fprintln(w, "Notes:")
+		fmt.Fprintln(w, "  This run may prompt for your admin password (sudo) for:")
+		for _, n := range sudoNotices {
+			if n.ItemName != "" {
+				fmt.Fprintf(w, "    - %s[%s] — %s\n", n.StepName, n.ItemName, n.Reason)
+			} else {
+				fmt.Fprintf(w, "    - %s — %s\n", n.StepName, n.Reason)
+			}
+		}
+		fmt.Fprintln(w)
+
+		if interactive && !yesFlag {
+			fmt.Fprint(w, "Continue? [Y/n] ")
+			reader := bufio.NewReader(os.Stdin)
+			line, _ := reader.ReadString('\n')
+			line = strings.TrimSpace(strings.ToLower(line))
+			if line != "" && line != "y" && line != "yes" {
+				fmt.Fprintln(w, "aborted by user")
+				return nil
+			}
+			fmt.Fprintln(w)
+		}
+	}
+
 	// 7. If any steps require sudo, acquire privileges
 	needsSudo := false
 	for _, sc := range stepConfigs {
@@ -169,6 +199,10 @@ func runApply(cmd *cobra.Command, args []string) error {
 // applyWithProgress runs the apply and displays progress using the UI.
 func applyWithProgress(ctx context.Context, w io.Writer, r *runner.Runner, graph *dag.ResolvedGraph, colorOn bool, tty bool) error {
 	progress := ui.NewProgress(w, len(graph.Steps), colorOn, tty)
+
+	// Attach the per-step stream writer so subprocess output (e.g. brew
+	// install progress, sudo password prompts) is visible in real time.
+	r.StreamWriter = progress.StreamWriter()
 
 	// Wire Runner callbacks to drive live progress display.
 	r.OnStepStart = func(stepName string, index int, total int) {

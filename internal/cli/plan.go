@@ -33,11 +33,12 @@ func newPlanCmd() *cobra.Command {
 // planResult holds the structured result of a plan operation, used for both
 // human and JSON output.
 type planResult struct {
-	Platform   string            `json:"platform"`
-	ConfigFile string            `json:"config"`
-	PreFlight  []preFlightCheck  `json:"pre_flight"`
-	Steps      []planStepResult  `json:"steps"`
-	Summary    planSummary       `json:"summary"`
+	Platform    string             `json:"platform"`
+	ConfigFile  string             `json:"config"`
+	PreFlight   []preFlightCheck   `json:"pre_flight"`
+	Steps       []planStepResult   `json:"steps"`
+	Summary     planSummary        `json:"summary"`
+	SudoNotices []steps.SudoNotice `json:"sudo_notices,omitempty"`
 }
 
 type preFlightCheck struct {
@@ -245,6 +246,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 			Satisfied: satisfied,
 			Blocked:   blocked,
 		},
+		SudoNotices: steps.SudoStepsForConfig(cfg),
 	}
 
 	// 8. Format and print output
@@ -332,6 +334,19 @@ func outputPlanHuman(w io.Writer, result planResult, colorOn bool) {
 		fmt.Fprintf(w, "  %2d. %s %-20s %s\n", ps.Index, actionLabel, ps.Name, ps.Description)
 	}
 	fmt.Fprintln(w)
+
+	if len(result.SudoNotices) > 0 {
+		fmt.Fprintln(w, "Notes:")
+		fmt.Fprintln(w, "  This run may prompt for your admin password (sudo) for:")
+		for _, n := range result.SudoNotices {
+			if n.ItemName != "" {
+				fmt.Fprintf(w, "    - %s[%s] — %s\n", n.StepName, n.ItemName, n.Reason)
+			} else {
+				fmt.Fprintf(w, "    - %s — %s\n", n.StepName, n.Reason)
+			}
+		}
+		fmt.Fprintln(w)
+	}
 
 	fmt.Fprintf(w, "Summary: %d to apply, %d already satisfied, %d blocked by missing secrets\n",
 		result.Summary.ToApply, result.Summary.Satisfied, result.Summary.Blocked)

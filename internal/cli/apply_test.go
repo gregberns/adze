@@ -312,3 +312,37 @@ func step_result_failed() step.StepResult {
 func emptyStepConfig() step.StepConfig {
 	return step.StepConfig{Name: "test"}
 }
+
+// TestPlan_SudoWarningInOutput verifies the Notes/sudo warning block is
+// emitted in plan output when the config requests a known sudo-requiring
+// cask. Uses `plan` (not `apply`) to avoid actually invoking brew during
+// the test run.
+func TestPlan_SudoWarningInOutput(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "machine.yaml")
+	cfg := `name: "test"
+platform: darwin
+packages:
+  cask:
+    - docker
+`
+	os.WriteFile(cfgPath, []byte(cfg), 0o644)
+
+	root := NewRootCmd("dev", "none", "unknown")
+	buf := new(bytes.Buffer)
+	root.SetOut(buf)
+	root.SetErr(buf)
+	root.SetArgs([]string{"plan", "--config", cfgPath})
+	_ = root.Execute()
+
+	out := buf.String()
+	if !strings.Contains(out, "Notes:") {
+		t.Errorf("expected Notes section in plan output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "brew-casks[docker]") {
+		t.Errorf("expected brew-casks[docker] in Notes, got:\n%s", out)
+	}
+	if !strings.Contains(out, "admin password") {
+		t.Errorf("expected 'admin password' in Notes, got:\n%s", out)
+	}
+}

@@ -304,3 +304,35 @@ func TestScenario_BrewPackagesDispatched(t *testing.T) {
 		t.Errorf("status = %q, want %q", result.Status, step.StatusApplied)
 	}
 }
+
+// TestScenario_SudoWarningInPlan verifies plan output includes a Notes
+// section when the config requests a known sudo-requiring cask.
+func TestScenario_SudoWarningInPlan(t *testing.T) {
+	notices := steps.SudoStepsForConfig(&config.Config{
+		Packages: config.PackagesConfig{
+			Cask: []config.PackageEntry{{Name: "docker"}},
+		},
+	})
+	if len(notices) == 0 {
+		t.Fatal("expected sudo notices for docker, got none")
+	}
+	// The plan formatter is exercised by outputPlanHuman; here we just
+	// verify the data plumbing produces a non-empty notice slice.
+	if notices[0].ItemName != "docker" {
+		t.Errorf("first notice item = %q, want docker", notices[0].ItemName)
+	}
+}
+
+// TestScenario_NoSudoWarning_NoMatches verifies no notices when no
+// sudo-requiring casks/steps are configured.
+func TestScenario_NoSudoWarning_NoMatches(t *testing.T) {
+	notices := steps.SudoStepsForConfig(&config.Config{
+		Packages: config.PackagesConfig{
+			Brew: []config.PackageEntry{{Name: "git"}},
+			Cask: []config.PackageEntry{{Name: "iterm2"}},
+		},
+	})
+	if len(notices) != 0 {
+		t.Errorf("expected zero notices, got %+v", notices)
+	}
+}
